@@ -1,0 +1,10 @@
+﻿.env
+server/.env
+data/*.db*
+data/shots/
+web/node_modules/
+web/dist/
+server/.venv/
+__pycache__/
+*.pyc
+

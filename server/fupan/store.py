@@ -1,0 +1,422 @@
+"""Snapshot assembly with SQLite caching.
+
+A snapshot is the single JSON document the frontend consumes, matching the
+reference tool's `/api/all` contract: stats / leaders / ladder / hot / pools.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import sqlite3
+import threading
+import time
+from datetime import date, datetime
+from typing import Any
+
+from . import analysis, concepts, config as cfg, fetch, history, klcache, llm
+
+log = logging.getLogger("fupan.store")
+
+_lock = threading.Lock()
+_mem: dict[str, Any] = {"key": None, "at": 0.0, "payload": None}
+
+
+def _conn() -> sqlite3.Connection:
+    conn = sqlite3.connect(cfg.DB_PATH, timeout=30)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    return conn
+
+
+def init_db() -> None:
+    with _conn() as c:
+        c.execute(
+            """CREATE TABLE IF NOT EXISTS snapshots (
+                   date TEXT PRIMARY KEY,
+                   ts INTEGER NOT NULL,
+                   payload TEXT NOT NULL
+               )"""
+        )
+        c.execute(
+            """CREATE TABLE IF NOT EXISTS boards (
+                   date TEXT NOT NULL,
+                   code TEXT NOT NULL,
+                   streak INTEGER NOT NULL,
+                   PRIMARY KEY (date, code)
+               )"""
+        )
+        c.execute(
+            """CREATE TABLE IF NOT EXISTS watchlist (
+                   code TEXT PRIMARY KEY,
+                   added_at INTEGER NOT NULL
+               )"""
+        )
+    klcache.init()
+    history.init()
+    llm.init()
+    log.info("db ready at %s", cfg.DB_PATH)
+
+
+def save_snapshot(date_str: str, payload: dict[str, Any]) -> None:
+    with _conn() as c:
+        c.execute(
+            "INSERT OR REPLACE INTO snapshots(date, ts, payload) VALUES (?,?,?)",
+            (date_str, payload["ts"], json.dumps(payload, ensure_ascii=False)),
+        )
+        for r in payload.get("pools", {}).get("up", []):
+            c.execute(
+                "INSERT OR REPLACE INTO boards(date, code, streak) VALUES (?,?,?)",
+                (date_str, r["code"], int(r.get("boards") or 0)),
+            )
+
+
+def load_snapshot(date_str: str) -> dict[str, Any] | None:
+    with _conn() as c:
+        row = c.execute("SELECT payload FROM snapshots WHERE date=?", (date_str,)).fetchone()
+    if not row:
+        return None
+    try:
+        return json.loads(row["payload"])
+    except json.JSONDecodeError:
+        return None
+
+
+def prev_board_map(date_str: str) -> dict[str, int]:
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT code, streak FROM boards WHERE date=?", (date_str,)
+        ).fetchall()
+    return {r["code"]: r["streak"] for r in rows}
+
+
+def _prev_trading_day(date_str: str) -> str:
+    """Previous stored trading date, else the prior weekday."""
+    with _conn() as c:
+        row = c.execute(
+            "SELECT date FROM snapshots WHERE date < ? ORDER BY date DESC LIMIT 1",
+            (date_str,),
+        ).fetchone()
+        if row:
+            return row["date"]
+    d = datetime.strptime(date_str, "%Y-%m-%d").date()
+    d = d.fromordinal(d.toordinal() - 1)
+    while d.weekday() >= 5:
+        d = d.fromordinal(d.toordinal() - 1)
+    return d.isoformat()
+
+
+# ---------------------------------------------------------------------------
+# Snapshot builder
+# ---------------------------------------------------------------------------
+def cached_snapshot() -> dict[str, Any] | None:
+    """Return the in-memory or stored snapshot without any network work.
+
+    Callers that only need to look something up (such as the stock drawer) must
+    not trigger a full-market rebuild.
+    """
+    today = date.today().isoformat()
+    if _mem["key"] == today and _mem["payload"]:
+        return _mem["payload"]
+    return load_snapshot(today)
+
+
+def build_snapshot(force: bool = False) -> dict[str, Any]:
+    """Fetch, analyse and cache a full-market snapshot for today."""
+    today = date.today().isoformat()
+    now = time.time()
+    if not force and _mem["key"] == today and _mem["payload"] and now - _mem["at"] < cfg.SNAPSHOT_TTL:
+        return _mem["payload"]
+
+    with _lock:
+        if not force and _mem["key"] == today and _mem["payload"] and time.time() - _mem["at"] < cfg.SNAPSHOT_TTL:
+            return _mem["payload"]
+
+        raw = fetch.fetch_snapshot()
+        if not raw:
+            cached = load_snapshot(today) or _latest_snapshot()
+            if cached:
+                cached["stale"] = True
+                log.warning("live fetch empty; serving cached snapshot")
+                return cached
+            return {
+                "ts": fetch.now_ts(),
+                "error": "行情源无返回，且本地无缓存快照",
+                "stats": {}, "leaders": [], "ladder": [], "hot": [],
+                "pools": {"up": [], "lb": [], "zb": [], "dt": []},
+            }
+
+        rows = [fetch.normalize(r) for r in raw]
+
+        # Drop IPO first-day rows: their change % is relative to the issue
+        # price, not the previous close, which would distort limit detection.
+        rows = [r for r in rows if not _is_ipo_day(r)]
+
+        pools: dict[str, list[dict[str, Any]]] = {"up": [], "lb": [], "zb": [], "dt": []}
+        for r in rows:
+            kind = analysis.classify(r)
+            if kind:
+                pools[kind].append(r)
+
+        up = pools["up"]
+
+        # Concept themes (新闻题材) and industry boards are separate taxonomies:
+        # themes drive the badges and cluster counts, industries feed the score.
+        concept_info = concepts.ensure([r["code"] for r in up]) if up else {}
+        for r in up:
+            info = concept_info.get(r["code"]) or {}
+            themes = info.get("themes") or []
+            industries = info.get("industries") or []
+            r["concepts"] = themes[:8]
+            r["industry"] = industries[0] if industries else ""
+            # Headline reason: leading concept themes, then the top industry.
+            head = themes[:3] or industries[:2]
+            r["reason"] = " + ".join(head)
+            r["conceptReasons"] = info.get("reasons") or {}
+
+        # Consecutive-board streaks need daily history.
+        code_list = [r["code"] for r in up]
+        klines = fetch.fetch_all_concurrently(code_list, days=20) if code_list else {}
+        for r in up:
+            bars = klines.get(r["code"]) or []
+            if bars:
+                series = analysis.board_series(bars, r["name"], r["code"])
+                streak, window = analysis.count_boards(series)
+                r["boards"] = streak
+                r["days"] = window
+            else:
+                r["boards"] = 1
+                r["days"] = 1
+            r["daysText"] = analysis.days_text(int(r["boards"]), int(r["days"]))
+            r["boardType"] = _board_type(r, bars)
+            r["market"] = analysis.board_of(r["code"], r["name"])
+            r["floatCap"] = r["float_cap"]
+            r["latest"] = r["price"]
+            r["sucRate"] = None
+            # Seal amount is not published by the snapshot feed; estimate the
+            # sealed order value from turnover at the limit price.
+            r["sealAmt"] = round(r["amount"] * 0.35) if r["amount"] else 0
+            r["sealRatio"] = round(r["sealAmt"] / r["float_cap"] * 100, 2) if r["float_cap"] else 0.0
+            r["openNum"] = _count_opens(r, bars)
+            r["firstTime"] = "--:--"
+            r["again"] = 1 if int(r["boards"]) >= 2 else 0
+            r["isNew"] = 1 if int(r["boards"]) == 1 else 0
+
+        analysis.annotate_sectors(up)
+        for kind in ("zb", "dt"):
+            for r in pools[kind]:
+                r["daysText"] = "—"
+                r["boardType"] = ""
+                r["boards"] = 0
+                r["days"] = 0
+                r["market"] = analysis.board_of(r["code"], r["name"])
+                r["latest"] = r["price"]
+                r["reason"] = ""
+                r["sucRate"] = None
+                r["floatCap"] = r["float_cap"]
+                r["sealAmt"] = 0
+                r["sealRatio"] = 0.0
+                r["openNum"] = 0
+                r["firstTime"] = "--:--"
+
+        prev = prev_board_map(_prev_trading_day(today))
+        prev_date = _prev_trading_day(today)
+        prev_max = max(prev.values(), default=None) if prev else None
+
+        max_board = max((int(r["boards"]) for r in up), default=0)
+        for r in up:
+            r["score"] = analysis.score_stock(r, max_board)
+
+        up_sorted = sorted(up, key=lambda r: -r["score"]["total"])
+        leaders = up_sorted[:12]
+        pools["lb"] = sorted([r for r in up if int(r["boards"]) >= 2], key=lambda r: -int(r["boards"]))
+        pools["up"] = up_sorted
+
+        # Previous-session ladder, reconstructed from daily bars when no stored
+        # snapshot exists for that date.
+        prev_history = history.build_previous_ladder(rows, session_date=today)
+        if not prev:
+            prev = {
+                item["code"]: g["board"]
+                for g in (prev_history or {}).get("groups", [])
+                for item in g["list"]
+            }
+            prev_date = (prev_history or {}).get("date") or prev_date
+            prev_max = max(prev.values(), default=None) if prev else None
+
+        payload = {
+            "ts": fetch.now_ts(),
+            "stats": analysis.stats_block(up, pools["zb"], pools["dt"], len(rows), today, prev_date, prev_max),
+            "leaders": [strip_internal(r) | {"score": r["score"], "preview": []} for r in leaders],
+            "ladder": analysis.build_ladder(up, prev),
+            "hot": analysis.build_hot(up),
+            "pools": {
+                k: [strip_internal(r) | {"score": r.get("score"), "preview": []} for r in v]
+                for k, v in pools.items()
+            },
+            "compare": _build_compare(up, prev, prev_date, prev_history),
+            "chongci": _build_chongci(pools["zb"]),
+            "drawdown": _build_drawdown(pools["zb"], pools["dt"]),
+            "stale": False,
+        }
+
+        save_snapshot(today, payload)
+        _mem.update({"key": today, "at": time.time(), "payload": payload})
+        log.info(
+            "snapshot built: up=%s zb=%s dt=%s scanned=%s",
+            len(up), len(pools["zb"]), len(pools["dt"]), len(rows),
+        )
+        return payload
+
+
+def _is_ipo_day(r: dict[str, Any]) -> bool:
+    name = (r.get("name") or "").strip()
+    return name.startswith(("N", "C")) and not name.startswith("NST")
+
+
+def _board_type(r: dict[str, Any], bars: list[dict[str, Any]] | None = None) -> str:
+    """Classify the seal pattern from today's OHLC range.
+
+    A single-seal (一字) day opens, closes and trades only at the limit; a T-board
+    opens away from the limit before sealing; everything else sealed during
+    regular trading.
+    """
+    high = r.get("high") or 0
+    low = r.get("low") or 0
+    open_ = r.get("open") or 0
+    price = r.get("price") or 0
+    pre = r.get("pre_close") or 0
+    if not (high and low and pre):
+        return "换手板"
+    flat_range = abs(high - low) < max(1e-6, pre * 0.0005)
+    if flat_range:
+        return "一字板"
+    open_near_limit = abs(open_ - high) < max(1e-6, pre * 0.0005)
+    if open_near_limit:
+        return "T字板"
+    return "换手板"
+
+
+def _count_opens(r: dict[str, Any], bars: list[dict[str, Any]] | None = None) -> int:
+    """Estimate how many times the limit was opened today.
+
+    The snapshot feed has no tick history, so this is derived from the day's
+    range: a wide low-to-close spread implies the limit broke at least once.
+    """
+    high = r.get("high") or 0
+    low = r.get("low") or 0
+    price = r.get("price") or 0
+    pre = r.get("pre_close") or 0
+    if not (high and price and pre):
+        return 0
+    if abs(price - high) > max(1e-6, pre * 0.0005):
+        return 0
+    spread = (high - low) / pre * 100
+    lim = analysis.limit_pct(r["code"], r["name"])
+    if spread < lim * 0.2:
+        return 0
+    return min(3, max(1, int(spread / (lim * 0.5))))
+
+
+def strip_internal(r: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in r.items() if not k.startswith("_")}
+
+
+def _build_compare(
+    up: list[dict[str, Any]],
+    prev: dict[str, int],
+    prev_date: str,
+    prev_history: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Today's ladder beside the previous session's, for promotional-rate review."""
+    today_groups: dict[int, list[dict[str, Any]]] = {}
+    for r in up:
+        b = int(r["boards"])
+        if b >= 1:
+            today_groups.setdefault(b, []).append(
+                {"code": r["code"], "name": r["name"], "chg": r["chg"]}
+            )
+
+    if prev_history and prev_history.get("groups"):
+        yest = prev_history["groups"]
+        prev_date = prev_history.get("date") or prev_date
+        yest_total = prev_history.get("total", 0)
+    else:
+        groups: dict[int, list[dict[str, Any]]] = {}
+        for code, b in prev.items():
+            if b >= 1:
+                groups.setdefault(b, []).append({"code": code, "name": "", "chg": 0.0})
+        yest = [
+            {"board": b, "label": f"昨日{b}板", "list": groups[b]}
+            for b in sorted(groups, reverse=True)
+        ]
+        yest_total = sum(len(v) for v in groups.values())
+
+    today = [
+        {"board": b, "label": f"今日{b}板", "list": sorted(today_groups[b], key=lambda x: -x["chg"])}
+        for b in sorted(today_groups, reverse=True)
+    ]
+
+    return {
+        "prevDate": prev_date,
+        "yest": yest,
+        "today": today,
+        "todayNew": [
+            {"code": r["code"], "name": r["name"], "chg": r["chg"]}
+            for r in sorted(up, key=lambda x: -x["chg"])[:30]
+        ],
+        "yestTotal": yest_total,
+        "todayTotal": len(up),
+        "promotionRate": round(len(up) / yest_total * 100, 1) if yest_total else None,
+    }
+
+
+def _build_chongci(zb: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    out = []
+    for r in sorted(zb, key=lambda x: -x["chg"])[:30]:
+        lim = analysis.limit_pct(r["code"], r["name"])
+        out.append({
+            "code": r["code"],
+            "name": r["name"],
+            "price": r["price"],
+            "chg": r["chg"],
+            "speed": 0,
+            "turnover": r["turnover"],
+            "amount": r["amount"],
+            "floatCap": r["float_cap"],
+            "high": r["high"],
+            "low": r["low"],
+            "limitChg": lim,
+            "gap": round(lim - r["chg"], 2),
+        })
+    return out
+
+
+def _build_drawdown(zb: list[dict[str, Any]], dt: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    out = []
+    for r in zb + dt:
+        high = r.get("high") or 0
+        pre = r.get("pre_close") or 0
+        if not high or not pre:
+            continue
+        high_chg = round((high - pre) / pre * 100, 2)
+        dd = round(r["chg"] - high_chg, 2)
+        out.append({
+            "code": r["code"],
+            "name": r["name"],
+            "price": r["price"],
+            "chg": r["chg"],
+            "highChg": high_chg,
+            "dd": dd,
+            "boardType": "",
+            "boards": 0,
+            "reason": "",
+            "attr": "",
+        })
+    return sorted(out, key=lambda x: x["dd"])[:30]
+
+
+def _latest_snapshot() -> dict[str, Any] | None:
+    with _conn() as c:
+        row = c.execute("SELECT payload FROM snapshots ORDER BY date DESC LIMIT 1").fetchone()
+    return json.loads(row["payload"]) if row else None
