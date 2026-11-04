@@ -21,6 +21,50 @@ log = logging.getLogger("fupan.store")
 _lock = threading.Lock()
 _mem: dict[str, Any] = {"key": None, "at": 0.0, "payload": None}
 
+# Background refresh state. A full-market build costs ~90s (mostly the
+# previous-day K-line probes), which exceeds Cloudflare's 100s origin timeout
+# when requested synchronously through the public endpoint. The API therefore
+# answers from cache immediately and rebuilds in a worker thread.
+_bg_lock = threading.Lock()
+_bg_thread: threading.Thread | None = None
+_bg_state: dict[str, Any] = {"started": 0.0, "done": 0.0, "error": None}
+
+
+def refresh_in_background() -> bool:
+    """Kick off an async rebuild unless one is already running."""
+    global _bg_thread
+    with _bg_lock:
+        if _bg_thread and _bg_thread.is_alive():
+            return False
+        _bg_state["started"] = time.time()
+        _bg_state["error"] = None
+
+        def _run() -> None:
+            try:
+                build_snapshot(force=True)
+            except Exception as exc:  # a failed refresh must not kill the server
+                _bg_state["error"] = f"{type(exc).__name__}: {exc}"
+                log.warning("background snapshot refresh failed: %s", exc)
+            finally:
+                _bg_state["done"] = time.time()
+
+        _bg_thread = threading.Thread(target=_run, name="snapshot-refresh", daemon=True)
+        _bg_thread.start()
+        return True
+
+
+def background_state() -> dict[str, Any]:
+    with _bg_lock:
+        running = bool(_bg_thread and _bg_thread.is_alive())
+        started, done = _bg_state["started"], _bg_state["done"]
+        return {
+            "running": running,
+            "last_started": started or None,
+            "last_finished": done or None,
+            "error": _bg_state["error"],
+        }
+
+
 
 def _conn() -> sqlite3.Connection:
     conn = sqlite3.connect(cfg.DB_PATH, timeout=30)
@@ -119,6 +163,13 @@ def cached_snapshot() -> dict[str, Any] | None:
     if _mem["key"] == today and _mem["payload"]:
         return _mem["payload"]
     return load_snapshot(today)
+
+
+def mem_age() -> float:
+    """Seconds since the in-memory snapshot was built (inf when absent)."""
+    if not _mem["payload"] or _mem["key"] != date.today().isoformat():
+        return float("inf")
+    return time.time() - _mem["at"]
 
 
 def build_snapshot(force: bool = False) -> dict[str, Any]:

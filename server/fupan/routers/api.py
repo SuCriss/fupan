@@ -20,7 +20,12 @@ def api_health() -> dict[str, Any]:
 
 @router.get("/all")
 def api_all(date: str = Query("", description="YYYYMMDD or YYYY-MM-DD; empty = latest")) -> dict[str, Any]:
-    """Full daily review document (stats, leaders, ladder, hot, pools)."""
+    """Full daily review document (stats, leaders, ladder, hot, pools).
+
+    Never blocks on a full-market build: a cached document is returned at once
+    and a refresh is started in the background. A cold cache (first ever run)
+    has nothing to serve, so it waits for the build.
+    """
     ds = date.replace("-", "").strip()
     if ds:
         iso = f"{ds[:4]}-{ds[4:6]}-{ds[6:8]}" if len(ds) == 8 else date
@@ -30,14 +35,46 @@ def api_all(date: str = Query("", description="YYYYMMDD or YYYY-MM-DD; empty = l
             return cached
         # Unknown historical date: only today can be fetched live.
         raise HTTPException(status_code=404, detail=f"暂无 {iso} 的快照数据")
-    return store.build_snapshot()
+
+    snap = store.cached_snapshot()
+    if snap:
+        # Serve immediately; refresh in the background when the cache is old.
+        if time.time() - store.mem_age() > cfg.SNAPSHOT_TTL:
+            store.refresh_in_background()
+        snap = dict(snap)
+        snap["stale"] = store.mem_age() > cfg.SNAPSHOT_TTL
+        snap["refreshing"] = store.background_state()["running"]
+        return snap
+
+    # Cold cache: the very first request has to wait for the build.
+    store.refresh_in_background()
+    deadline = time.time() + 240
+    while time.time() < deadline:
+        snap = store.cached_snapshot()
+        if snap:
+            snap = dict(snap)
+            snap["stale"] = False
+            snap["refreshing"] = store.background_state()["running"]
+            return snap
+        time.sleep(1.5)
+    raise HTTPException(status_code=503, detail="快照构建超时，请稍后重试")
+
 
 
 @router.post("/refresh")
 def api_refresh() -> dict[str, Any]:
-    """Force a live refetch, bypassing the TTL cache."""
-    snap = store.build_snapshot(force=True)
-    return {"ok": "error" not in snap, "ts": snap.get("ts"), "stats": snap.get("stats")}
+    """Start a live refetch in the background.
+
+    A synchronous rebuild takes ~90s, which Cloudflare would cut off at its
+    100s origin timeout, so the work is queued and progress is pollable.
+    """
+    started = store.refresh_in_background()
+    return {"ok": True, "started": started, **store.background_state()}
+
+
+@router.get("/refresh/status")
+def api_refresh_status() -> dict[str, Any]:
+    return store.background_state()
 
 
 @router.get("/market")

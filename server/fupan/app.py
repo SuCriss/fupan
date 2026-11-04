@@ -22,6 +22,9 @@ WEB_DIST = cfg.ROOT_DIR / "web" / "dist"
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     store.init_db()
+    # Warm the snapshot in the background so the first page load does not wait
+    # for a ~90s full-market build.
+    store.refresh_in_background()
     yield
 
 
