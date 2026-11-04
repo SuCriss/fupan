@@ -41,17 +41,39 @@ SINA_CENTER = (
     "Market_Center.getHQNodeData"
 )
 SINA_QUOTE = "https://hq.sinajs.cn/list="
-# NOTE: web.ifzq.gtimg.cn answers the fqkline path with an anti-bot JS challenge
-# (HTTP 501). The sibling host serves the same payload without it.
-TENCENT_KLINE = "https://ifzq.gtimg.cn/appstock/app/fqkline/get"
+# Both Tencent hosts serve the same forward-adjusted daily bars. Which one
+# answers depends on the network egress: some hosts are met with an anti-bot JS
+# challenge (HTTP 501) from one location but work from another, so the fetch
+# layer tries both and remembers the host that worked.
+KLINE_HOSTS = (
+    "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get",
+    "https://ifzq.gtimg.cn/appstock/app/fqkline/get",
+)
+TENCENT_KLINE = KLINE_HOSTS[0]
 TENCENT_MINUTE = "https://web.ifzq.gtimg.cn/appstock/app/minute/query"
+
+# Set at runtime to the K-line host that last returned data.
+_kline_host_hint: str | None = None
+
+
+def kline_host_hint() -> str | None:
+    return _kline_host_hint
+
+
+def set_kline_host_hint(host: str) -> None:
+    global _kline_host_hint
+    _kline_host_hint = host
+
+
+# Per-request socket timeout. Kept short so one stalled upstream cannot hold a
+# whole snapshot build hostage.
+HTTP_TIMEOUT = float(os.environ.get("FUPAN_HTTP_TIMEOUT", "20"))
+FETCH_PAGE_SIZE = 100
 
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 )
-HTTP_TIMEOUT = 20.0
-FETCH_PAGE_SIZE = 100
 
 # Snapshot is cached this many seconds before a live refetch is attempted.
 SNAPSHOT_TTL = int(os.environ.get("FUPAN_SNAPSHOT_TTL", "60"))

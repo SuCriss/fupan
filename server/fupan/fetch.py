@@ -168,13 +168,24 @@ def fetch_minute(code: str) -> list[dict[str, Any]]:
 
 
 def _fetch_kline_remote(code: str, days: int) -> list[dict[str, Any]]:
-    """Network-only daily-bar fetch, trying each known host."""
+    """Network-only daily-bar fetch, trying each known host.
+
+    Host availability differs by network: some egress points get HTTP 501 from
+    one Tencent host while the sibling host answers normally. The first host that
+    succeeds is remembered so later calls skip the dead one.
+    """
     sym = to_symbol(code)
-    hosts = [
-        config.TENCENT_KLINE,
-        config.TENCENT_KLINE.replace("//ifzq.", "//web.ifzq."),
+    bases = [
+        "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get",
+        "https://ifzq.gtimg.cn/appstock/app/fqkline/get",
     ]
-    for base in hosts:
+    # Prefer the host that last worked.
+    good = config.kline_host_hint()
+    if good in bases:
+        bases.remove(good)
+        bases.insert(0, good)
+
+    for base in bases:
         url = f"{base}?param={sym},day,,,{days},qfq"
         try:
             j = json.loads(_get_text(url, "https://gu.qq.com/"))
@@ -203,6 +214,7 @@ def _fetch_kline_remote(code: str, days: int) -> list[dict[str, Any]]:
             except (TypeError, ValueError):
                 continue
         if out:
+            config.set_kline_host_hint(base)
             return out
     log.debug("kline unavailable for %s", code)
     return []
