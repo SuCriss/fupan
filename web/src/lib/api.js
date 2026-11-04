@@ -23,7 +23,14 @@ export const getReview = (date = '') =>
 
 export const refresh = () => request('/api/refresh', { method: 'POST' })
 
+/** Poll the background snapshot build. */
+export const refreshStatus = () => request('/api/refresh/status')
+
 export const getMarket = () => request('/api/market')
+
+/** Fuzzy code/name lookup over the full-market symbol list. */
+export const searchStocks = (q) =>
+  request(`/api/search?q=${encodeURIComponent(q)}`)
 
 export const getStock = (code, refreshCache = false) =>
   request(`/api/stock/${code}${refreshCache ? '?refresh=true' : ''}`)

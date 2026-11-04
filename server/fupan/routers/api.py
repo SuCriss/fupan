@@ -119,6 +119,45 @@ def api_watch_remove(code: str) -> dict[str, Any]:
     return {"ok": True, "code": code}
 
 
+@router.get("/search")
+def api_search(q: str = Query("", description="code or name fragment"), limit: int = 12) -> dict[str, Any]:
+    """Fuzzy stock lookup over the full-market symbol list.
+
+    Reads only local SQLite, so it answers instantly and never triggers a
+    market fetch. Pool rows in the cached snapshot are merged in when present
+    so the dropdown can also show today's change and board count.
+    """
+    term = q.strip()
+    if not term:
+        return {"q": "", "items": []}
+
+    snap = store.cached_snapshot() or {}
+    pool_rows: dict[str, dict[str, Any]] = {}
+    for group in (snap.get("pools") or {}).values():
+        for s in group or []:
+            code = s.get("code")
+            if code and code not in pool_rows:
+                pool_rows[code] = s
+
+    hits = store.search_universe(term, limit=limit)
+    items = []
+    for h in hits:
+        code, name = h["code"], h["name"]
+        live = pool_rows.get(code) or {}
+        items.append(
+            {
+                "code": code,
+                "name": name,
+                "price": live.get("price"),
+                "chg": live.get("chg"),
+                "boards": live.get("boards", 0),
+                "kind": live.get("kind"),
+                "concepts": (live.get("concepts") or [])[:3],
+            }
+        )
+    return {"q": term, "items": items, "universe": store.universe_size()}
+
+
 @router.get("/stock/{code}")
 def api_stock(code: str, days: int = 600, refresh: bool = False, ai: bool = True) -> dict[str, Any]:
     """Per-stock detail: quote, intraday minutes, concept themes and board metadata.

@@ -28,25 +28,42 @@ _mem: dict[str, Any] = {"key": None, "at": 0.0, "payload": None}
 _bg_lock = threading.Lock()
 _bg_thread: threading.Thread | None = None
 _bg_state: dict[str, Any] = {"started": 0.0, "done": 0.0, "error": None}
+# Set when a caller asked for a rebuild while one was already running, so the
+# request is not silently dropped: the worker loops once more before exiting.
+_bg_pending = False
 
 
 def refresh_in_background() -> bool:
-    """Kick off an async rebuild unless one is already running."""
-    global _bg_thread
+    """Request an async rebuild. Never silently drops the request.
+
+    Returns True when a new worker was started. When a build is already running
+    the request is queued (the worker rebuilds again before exiting) and False
+    is returned, but the caller's data will still be refreshed.
+    """
+    global _bg_thread, _bg_pending
     with _bg_lock:
         if _bg_thread and _bg_thread.is_alive():
+            _bg_pending = True
             return False
+        _bg_pending = False
         _bg_state["started"] = time.time()
         _bg_state["error"] = None
 
         def _run() -> None:
-            try:
-                build_snapshot(force=True)
-            except Exception as exc:  # a failed refresh must not kill the server
-                _bg_state["error"] = f"{type(exc).__name__}: {exc}"
-                log.warning("background snapshot refresh failed: %s", exc)
-            finally:
-                _bg_state["done"] = time.time()
+            global _bg_pending
+            while True:
+                try:
+                    build_snapshot(force=True)
+                except Exception as exc:  # a failed refresh must not kill the server
+                    _bg_state["error"] = f"{type(exc).__name__}: {exc}"
+                    log.warning("background snapshot refresh failed: %s", exc)
+                finally:
+                    _bg_state["done"] = time.time()
+                with _bg_lock:
+                    if not _bg_pending:
+                        break
+                    _bg_pending = False
+                    _bg_state["started"] = time.time()
 
         _bg_thread = threading.Thread(target=_run, name="snapshot-refresh", daemon=True)
         _bg_thread.start()
@@ -59,6 +76,7 @@ def background_state() -> dict[str, Any]:
         started, done = _bg_state["started"], _bg_state["done"]
         return {
             "running": running,
+            "pending": _bg_pending,
             "last_started": started or None,
             "last_finished": done or None,
             "error": _bg_state["error"],
@@ -96,6 +114,16 @@ def init_db() -> None:
                    added_at INTEGER NOT NULL
                )"""
         )
+        # Full-market symbol list, refreshed with each snapshot build. Powers
+        # name/code search for any stock, not just those in a limit-up pool.
+        c.execute(
+            """CREATE TABLE IF NOT EXISTS universe (
+                   code TEXT PRIMARY KEY,
+                   name TEXT NOT NULL,
+                   updated INTEGER NOT NULL
+               )"""
+        )
+        c.execute("CREATE INDEX IF NOT EXISTS idx_universe_name ON universe(name)")
     klcache.init()
     history.init()
     llm.init()
@@ -124,6 +152,58 @@ def load_snapshot(date_str: str) -> dict[str, Any] | None:
         return json.loads(row["payload"])
     except json.JSONDecodeError:
         return None
+
+
+def save_universe(rows: list[dict[str, Any]]) -> None:
+    """Persist the full-market code/name list for fast offline search."""
+    now = int(time.time())
+    pairs = [
+        (str(r.get("code")), str(r.get("name") or "").strip(), now)
+        for r in rows
+        if r.get("code") and r.get("name")
+    ]
+    if not pairs:
+        return
+    try:
+        with _conn() as c:
+            c.executemany(
+                "INSERT OR REPLACE INTO universe(code, name, updated) VALUES (?,?,?)",
+                pairs,
+            )
+        log.debug("universe refreshed: %s symbols", len(pairs))
+    except sqlite3.Error as exc:
+        log.warning("universe refresh failed: %s", exc)
+
+
+def search_universe(term: str, limit: int = 12) -> list[dict[str, Any]]:
+    """Rank full-market symbols by code/name match, best first."""
+    term = term.strip()
+    if not term:
+        return []
+    like = f"%{term}%"
+    prefix = f"{term}%"
+    with _conn() as c:
+        rows = c.execute(
+            """SELECT code, name FROM universe
+               WHERE code LIKE ? OR name LIKE ?
+               ORDER BY
+                 CASE
+                   WHEN code = ?             THEN 0
+                   WHEN code LIKE ?          THEN 1
+                   WHEN name = ?             THEN 2
+                   WHEN name LIKE ?          THEN 3
+                   ELSE 4
+                 END,
+                 code
+               LIMIT ?""",
+            (like, like, term, prefix, term, prefix, max(1, min(limit, 50))),
+        ).fetchall()
+    return [{"code": r["code"], "name": r["name"]} for r in rows]
+
+
+def universe_size() -> int:
+    with _conn() as c:
+        return c.execute("SELECT COUNT(*) AS n FROM universe").fetchone()["n"]
 
 
 def prev_board_map(date_str: str) -> dict[str, int]:
@@ -312,6 +392,7 @@ def build_snapshot(force: bool = False) -> dict[str, Any]:
         }
 
         save_snapshot(today, payload)
+        save_universe(rows)
         _mem.update({"key": today, "at": time.time(), "payload": payload})
         log.info(
             "snapshot built: up=%s zb=%s dt=%s scanned=%s",

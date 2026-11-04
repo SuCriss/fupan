@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { getReview, refresh as apiRefresh, getMarket } from './lib/api'
+import { getReview, refresh as apiRefresh, refreshStatus, getMarket } from './lib/api'
 import { fmtAmt, pct, cls, badgeCls } from './lib/format'
 import { DetailDrawer } from './components/DetailDrawer'
+import StockSearch from './components/StockSearch'
 
 const TABS = [
   { key: 'leaders', label: '龙头榜' },
@@ -376,9 +377,25 @@ export default function App() {
     setLoading(true)
     setError('')
     try {
-      const j = force
-        ? await apiRefresh().then(() => getReview())
-        : await getReview()
+      if (force) {
+        // The rebuild runs in a server-side worker thread (~90s, mostly the
+        // previous-day K-line probes). Poll until it settles, then re-read.
+        const asked = Date.now()
+        await apiRefresh()
+        setStamp('刷新中…')
+        let settled = false
+        for (let i = 0; i < 150; i += 1) {
+          await new Promise((r) => setTimeout(r, 1500))
+          const st = await refreshStatus()
+          // Wait for a build that *finished after* the request was made.
+          if (!st.running && !st.pending && (st.last_finished || 0) > asked / 1000) {
+            settled = true
+            break
+          }
+        }
+        if (!settled) throw new Error('刷新超时，请稍后重试')
+      }
+      const j = await getReview()
       if (j.error) throw new Error(j.error)
       setData(j)
       setDateInput(j.stats?.date || '')
@@ -420,6 +437,7 @@ export default function App() {
           </div>
         </div>
         <div className="tools">
+          <StockSearch onPick={openDetail} />
           <input
             className="inp"
             type="date"
