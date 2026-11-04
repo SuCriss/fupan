@@ -76,7 +76,10 @@ USER_AGENT = (
 )
 
 # Snapshot is cached this many seconds before a live refetch is attempted.
-SNAPSHOT_TTL = int(os.environ.get("FUPAN_SNAPSHOT_TTL", "60"))
+# A background rebuild takes ~110s, so the TTL must be *longer* than that:
+# with a shorter TTL every page view re-triggers a build while one is already
+# regenerating, keeping the worker busy and the UI stuck on "refreshing".
+SNAPSHOT_TTL = int(os.environ.get("FUPAN_SNAPSHOT_TTL", "300"))
 
 # --- market rules ----------------------------------------------------------
 # Daily price-limit percentage by board / risk flag.
