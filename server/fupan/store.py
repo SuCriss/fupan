@@ -28,42 +28,31 @@ _mem: dict[str, Any] = {"key": None, "at": 0.0, "payload": None}
 _bg_lock = threading.Lock()
 _bg_thread: threading.Thread | None = None
 _bg_state: dict[str, Any] = {"started": 0.0, "done": 0.0, "error": None}
-# Set when a caller asked for a rebuild while one was already running, so the
-# request is not silently dropped: the worker loops once more before exiting.
-_bg_pending = False
 
 
 def refresh_in_background() -> bool:
-    """Request an async rebuild. Never silently drops the request.
+    """Request a background rebuild. At most one worker runs at a time.
 
-    Returns True when a new worker was started. When a build is already running
-    the request is queued (the worker rebuilds again before exiting) and False
-    is returned, but the caller's data will still be refreshed.
+    Returns True when a new worker was actually started, False when a build is
+    already in flight (nothing is queued on top of it). A build takes ~110s,
+    which is *longer* than SNAPSHOT_TTL, so queueing more rounds would keep the
+    worker busy forever and the UI would see `running` true indefinitely.
     """
-    global _bg_thread, _bg_pending
+    global _bg_thread
     with _bg_lock:
         if _bg_thread and _bg_thread.is_alive():
-            _bg_pending = True
             return False
-        _bg_pending = False
         _bg_state["started"] = time.time()
         _bg_state["error"] = None
 
         def _run() -> None:
-            global _bg_pending
-            while True:
-                try:
-                    build_snapshot(force=True)
-                except Exception as exc:  # a failed refresh must not kill the server
-                    _bg_state["error"] = f"{type(exc).__name__}: {exc}"
-                    log.warning("background snapshot refresh failed: %s", exc)
-                finally:
-                    _bg_state["done"] = time.time()
-                with _bg_lock:
-                    if not _bg_pending:
-                        break
-                    _bg_pending = False
-                    _bg_state["started"] = time.time()
+            try:
+                build_snapshot(force=True)
+            except Exception as exc:  # a failed refresh must not kill the server
+                _bg_state["error"] = f"{type(exc).__name__}: {exc}"
+                log.warning("background snapshot refresh failed: %s", exc)
+            finally:
+                _bg_state["done"] = time.time()
 
         _bg_thread = threading.Thread(target=_run, name="snapshot-refresh", daemon=True)
         _bg_thread.start()
@@ -76,7 +65,7 @@ def background_state() -> dict[str, Any]:
         started, done = _bg_state["started"], _bg_state["done"]
         return {
             "running": running,
-            "pending": _bg_pending,
+            "pending": False,
             "last_started": started or None,
             "last_finished": done or None,
             "error": _bg_state["error"],

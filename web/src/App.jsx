@@ -388,7 +388,7 @@ export default function App() {
           await new Promise((r) => setTimeout(r, 1500))
           const st = await refreshStatus()
           // Wait for a build that *finished after* the request was made.
-          if (!st.running && !st.pending && (st.last_finished || 0) > asked / 1000) {
+          if (!st.running && (st.last_finished || 0) > asked / 1000) {
             settled = true
             break
           }

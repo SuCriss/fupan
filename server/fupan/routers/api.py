@@ -38,8 +38,13 @@ def api_all(date: str = Query("", description="YYYYMMDD or YYYY-MM-DD; empty = l
 
     snap = store.cached_snapshot()
     if snap:
-        # Serve immediately; refresh in the background when the cache is old.
-        if time.time() - store.mem_age() > cfg.SNAPSHOT_TTL:
+        # Serve immediately; refresh in the background only when the cache is
+        # old *and* no build is already running (a build takes ~110s, longer
+        # than SNAPSHOT_TTL, so re-triggering while one runs would run forever).
+        if (
+            time.time() - store.mem_age() > cfg.SNAPSHOT_TTL
+            and not store.background_state()["running"]
+        ):
             store.refresh_in_background()
         snap = dict(snap)
         snap["stale"] = store.mem_age() > cfg.SNAPSHOT_TTL
