@@ -19,6 +19,7 @@ html, body, #root { height: 100%; }
 
 body {
   margin: 0;
+  overflow-x: hidden;
   background: radial-gradient(1200px 600px at 50% -10%, #16202f 0%, var(--bg) 55%);
   color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
@@ -171,7 +172,7 @@ input { font-family: inherit; }
 .toolbar {
   display: flex; align-items: center; gap: 12px; padding: 13px 22px 4px; flex-wrap: wrap;
 }
-.search { min-width: 260px; }
+.toolbar .search { min-width: 260px; }
 .legend { margin-left: auto; display: flex; align-items: center; gap: 12px; font-size: 11px; color: var(--dim); flex-wrap: wrap; }
 .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; margin-right: 4px; }
 .dot.up { background: var(--up); }
@@ -521,8 +522,18 @@ tbody tr:last-child td { border-bottom: none; }
 }
 
 @media (max-width: 720px) {
-  .topbar { flex-wrap: wrap; }
+  .topbar { flex-wrap: wrap; gap: 10px 14px; padding: 10px 12px; }
   .brand p { display: none; }
+  /* Let the header tools wrap onto their own rows instead of scrolling off
+     the side of the phone, and push the search to a full-width row. */
+  .tools { flex-wrap: wrap; width: 100%; margin-left: 0; }
+  .topbar .search { order: 10; width: 100%; min-width: 0; }
+  .topbar .search-inp { width: 100%; }
+  .topbar .search-pop {
+    left: 0; right: auto; width: 100%;
+    position: absolute; top: calc(100% + 6px);
+  }
+  .tools .btn, .tools .inp[type="date"] { flex: 1 1 auto; }
   .view { padding: 10px 12px 30px; }
   .kpis, .sectors, .tabs, .toolbar, .idxbar { padding-left: 12px; padding-right: 12px; }
   .mgrid { grid-template-columns: repeat(2, 1fr); }
