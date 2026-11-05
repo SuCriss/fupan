@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   getReview,
   refresh as apiRefresh,
@@ -454,6 +454,41 @@ function readDateFromUrl() {
   return ''
 }
 
+/** Read a persisted UI preference without throwing (private mode, etc.). */
+function readPref(key) {
+  try {
+    return window.localStorage.getItem(key) || ''
+  } catch {
+    return ''
+  }
+}
+
+function writePref(key, value) {
+  try {
+    window.localStorage.setItem(key, value)
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+/** Best-effort desktop notification after a background auto-refresh. */
+function notifyUpdated(doc) {
+  try {
+    if (typeof Notification === 'undefined') return
+    if (Notification.permission !== 'granted') return
+    if (readPref('fupan_notify') !== '1') return
+    // Only worth a popup when the user is looking at something else.
+    if (document.visibilityState === 'visible') return
+    const s = doc?.stats || {}
+    new Notification('复盘数据已更新', {
+      body: `${s.date || ''} 涨停 ${s.upCount ?? 0} 家 · 情绪 ${doc?.sentiment?.score ?? '--'}`,
+      tag: 'fupan-refresh',
+    })
+  } catch {
+    /* notifications are best-effort */
+  }
+}
+
 export default function App() {
   const [data, setData] = useState(null)
   const [market, setMarket] = useState(null)
@@ -468,6 +503,12 @@ export default function App() {
   const [dateInput, setDateInput] = useState('')
   const [dates, setDates] = useState([])
   const [trend, setTrend] = useState([])
+  // Auto-refresh during trading hours, persisted across visits.
+  const [autoOn, setAutoOn] = useState(() => readPref('fupan_auto') === '1')
+  const [autoMin, setAutoMin] = useState(() => Number(readPref('fupan_auto_min')) || 10)
+  const [nextAt, setNextAt] = useState(0)
+  const [notifyOn, setNotifyOn] = useState(() => readPref('fupan_notify') === '1')
+  const busyRef = useRef(false)
 
   const loadTrend = useCallback(() => {
     getSentiment(60)
@@ -475,8 +516,14 @@ export default function App() {
       .catch(() => {})
   }, [])
 
-  const load = useCallback(async (force = false, targetDate = date) => {
-    setLoading(true)
+  /**
+   * Load (and optionally rebuild) the review document.
+   * `silent` keeps the auto-refresh from disabling the whole UI every cycle.
+   */
+  const load = useCallback(async (force = false, targetDate = date, silent = false) => {
+    if (busyRef.current) return
+    busyRef.current = true
+    if (!silent) setLoading(true)
     setError('')
     try {
       // Only the latest day can be rebuilt; archives are read-only.
@@ -485,7 +532,7 @@ export default function App() {
         // previous-day K-line probes). Poll until it settles, then re-read.
         const asked = Date.now()
         await apiRefresh()
-        setStamp('刷新中…')
+        setStamp(silent ? '自动刷新中…' : '刷新中…')
         let settled = false
         for (let i = 0; i < 150; i += 1) {
           await new Promise((r) => setTimeout(r, 1500))
@@ -504,11 +551,18 @@ export default function App() {
       setDateInput(j.stats?.date || '')
       setStamp(new Date(j.ts).toLocaleTimeString('zh-CN', { hour12: false }))
       if (force) loadTrend()
+      if (silent) notifyUpdated(j)
     } catch (e) {
-      setError(e.message || String(e))
-      setStamp('加载失败')
+      if (silent) {
+        // A background refresh must never blank out data the user is reading.
+        setStamp('自动刷新失败')
+      } else {
+        setError(e.message || String(e))
+        setStamp('加载失败')
+      }
     } finally {
-      setLoading(false)
+      busyRef.current = false
+      if (!silent) setLoading(false)
     }
   }, [date, loadTrend])
 
@@ -558,8 +612,80 @@ export default function App() {
 
   const openDetail = useCallback((code) => setDetailCode(code), [])
 
+  // --- trading-hours auto refresh -----------------------------------------
+  useEffect(() => {
+    writePref('fupan_auto', autoOn ? '1' : '0')
+    writePref('fupan_auto_min', String(autoMin))
+  }, [autoOn, autoMin])
+
+  const marketStatus = market?.status || ''
+  const inSession = marketStatus === '交易中' || marketStatus === '集合竞价'
+  // Archive days are read-only, and there is nothing to poll when the market
+  // is closed, so the switch only bites during a live session.
+  const autoActive = autoOn && inSession && !date
+
+  useEffect(() => {
+    if (!autoActive) {
+      setNextAt(0)
+      return undefined
+    }
+    const period = Math.max(1, autoMin) * 60000
+    setNextAt(Date.now() + period)
+    const t = setInterval(() => {
+      // Leave `nextAt` due while hidden so returning to the tab refreshes at
+      // once instead of waiting out another full period.
+      if (document.visibilityState === 'hidden') return
+      setNextAt(Date.now() + period)
+      load(true, date, true)
+    }, period)
+    return () => clearInterval(t)
+  }, [autoActive, autoMin, date, load])
+
+  // If a refresh came due while the tab was in the background, run it now.
+  useEffect(() => {
+    if (!autoActive) return undefined
+    const onVis = () => {
+      if (document.visibilityState === 'visible' && nextAt && Date.now() >= nextAt) {
+        load(true, date, true)
+      }
+    }
+    document.addEventListener('visibilitychange', onVis)
+    return () => document.removeEventListener('visibilitychange', onVis)
+  }, [autoActive, nextAt, date, load])
+
   const stats = data?.stats
   const pools = data?.pools || {}
+
+  const autoHint = !autoOn
+    ? '已关闭'
+    : date
+      ? '归档只读'
+      : !inSession
+        ? `${marketStatus || '非交易时段'} · 暂停`
+        : nextAt
+          ? `下次 ${new Date(nextAt).toLocaleTimeString('zh-CN', { hour12: false }).slice(0, 5)}`
+          : '等待行情状态…'
+
+  const toggleNotify = async () => {
+    try {
+      if (notifyOn) {
+        writePref('fupan_notify', '0')
+        setNotifyOn(false)
+        return
+      }
+      if (typeof Notification === 'undefined') return
+      const perm =
+        Notification.permission === 'granted'
+          ? 'granted'
+          : await Notification.requestPermission()
+      if (perm === 'granted') {
+        writePref('fupan_notify', '1')
+        setNotifyOn(true)
+      }
+    } catch {
+      /* notifications are optional */
+    }
+  }
 
   // Archive navigation: the list is newest-first, so +1 is older, -1 newer.
   const dateList = useMemo(() => {
@@ -676,6 +802,39 @@ export default function App() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
+        <div className={`autoref${autoOn ? ' on' : ''}`}>
+          <button
+            type="button"
+            className="ar-switch"
+            onClick={() => setAutoOn((v) => !v)}
+            aria-pressed={autoOn}
+            title="交易时段内自动刷新复盘数据"
+          >
+            <i aria-hidden="true" />
+            <span>自动刷新</span>
+          </button>
+          <select
+            className="inp ar-sel"
+            value={autoMin}
+            onChange={(e) => setAutoMin(Number(e.target.value))}
+            disabled={!autoOn}
+            aria-label="自动刷新间隔"
+          >
+            {[5, 10, 15, 30].map((m) => (
+              <option key={m} value={m}>每 {m} 分钟</option>
+            ))}
+          </select>
+          <span className="ar-hint">{autoHint}</span>
+          <button
+            type="button"
+            className={`ar-bell${notifyOn ? ' on' : ''}`}
+            onClick={toggleNotify}
+            aria-pressed={notifyOn}
+            title={notifyOn ? '关闭更新通知' : '开启更新通知（标签页在后台时提醒）'}
+          >
+            {notifyOn ? '🔔' : '🔕'}
+          </button>
+        </div>
         <div className="legend">
           <span><span className="dot up" />涨停/连板</span>
           <span><span className="dot down" />跌停</span>
