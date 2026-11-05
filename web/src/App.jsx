@@ -506,7 +506,11 @@ export default function App() {
   const [tab, setTab] = useState('leaders')
   const [query, setQuery] = useState('')
   const [detailCode, setDetailCode] = useState(null)
-  const [stamp, setStamp] = useState('--')
+  // Freshness is derived from the snapshot's own timestamp so the header can say
+  // how old the data actually is, not just when it was fetched.
+  const [dataTs, setDataTs] = useState(0)
+  const [stampBusy, setStampBusy] = useState('')
+  const [nowMs, setNowMs] = useState(() => Date.now())
   // '' means "latest"; otherwise a YYYY-MM-DD archive date.
   const [date, setDate] = useState(readDateFromUrl)
   const [dateInput, setDateInput] = useState('')
@@ -543,7 +547,7 @@ export default function App() {
         // previous-day K-line probes). Poll until it settles, then re-read.
         const asked = Date.now()
         await apiRefresh()
-        setStamp(silent ? '自动刷新中…' : '刷新中…')
+        setStampBusy(silent ? '自动刷新中…' : '刷新中…')
         let settled = false
         for (let i = 0; i < 150; i += 1) {
           await new Promise((r) => setTimeout(r, 1500))
@@ -560,16 +564,17 @@ export default function App() {
       if (j.error) throw new Error(j.error)
       setData(j)
       setDateInput(j.stats?.date || '')
-      setStamp(new Date(j.ts).toLocaleTimeString('zh-CN', { hour12: false }))
+      setDataTs(Number(j.ts) || Date.now())
+      setStampBusy('')
       if (force) loadTrend()
       if (silent) notifyUpdated(j)
     } catch (e) {
       if (silent) {
         // A background refresh must never blank out data the user is reading.
-        setStamp('自动刷新失败')
+        setStampBusy('自动刷新失败')
       } else {
         setError(e.message || String(e))
-        setStamp('加载失败')
+        setStampBusy('加载失败')
       }
     } finally {
       busyRef.current = false
@@ -685,8 +690,37 @@ export default function App() {
     return () => document.removeEventListener('visibilitychange', onVis)
   }, [autoActive, nextAt, date, load])
 
+  // Keep the relative age honest without re-rendering on every tick.
+  useEffect(() => {
+    const t = setInterval(() => setNowMs(Date.now()), 30000)
+    return () => clearInterval(t)
+  }, [])
+
   const stats = data?.stats
   const pools = data?.pools || {}
+
+  // Freshness tiers mirror the server's SNAPSHOT_TTL (900s): under 5 minutes is
+  // fresh, under the TTL is aging, beyond it the served data is stale.
+  const ageSec = dataTs ? Math.max(0, Math.round((nowMs - dataTs) / 1000)) : null
+  const freshCls =
+    ageSec == null ? 'unknown' : ageSec <= 300 ? 'fresh' : ageSec <= 900 ? 'aging' : 'stale'
+  const ageText =
+    ageSec == null
+      ? '--'
+      : ageSec < 45
+        ? '刚刚更新'
+        : ageSec < 3600
+          ? `${Math.max(1, Math.round(ageSec / 60))} 分钟前`
+          : `${(ageSec / 3600).toFixed(1)} 小时前`
+  const updTime = dataTs
+    ? new Date(dataTs).toLocaleTimeString('zh-CN', { hour12: false }).slice(0, 5)
+    : '--:--'
+  const dataDay = stats?.date || ''
+  const stampTitle = dataTs
+    ? `数据时间 ${new Date(dataTs).toLocaleString('zh-CN', { hour12: false })}`
+      + ` · 数据日期 ${dataDay || '--'}`
+      + ` · 行情 ${market?.status || '--'}`
+    : '尚未加载数据'
 
   const autoHint = !autoOn
     ? '已关闭'
@@ -783,7 +817,18 @@ export default function App() {
               {loading ? '刷新中…' : '刷新数据'}
             </button>
           )}
-          <span className="stamp">{stamp}</span>
+          <span className={`stamp ${stampBusy ? 'busy' : freshCls}`} title={stampTitle}>
+            <i className="stamp-dot" />
+            {dataTs ? (
+              <>
+                {dataDay && <b>{dataDay.slice(5)}</b>}
+                <span className="stamp-time">{updTime} 更新 · {ageText}</span>
+              </>
+            ) : (
+              <span className="stamp-time">加载中…</span>
+            )}
+            {stampBusy && <em className="stamp-busy">{stampBusy}</em>}
+          </span>
         </div>
       </header>
 

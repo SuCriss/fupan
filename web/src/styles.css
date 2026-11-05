@@ -104,7 +104,25 @@ input { font-family: inherit; }
 }
 .btn.primary:hover { filter: brightness(1.12); }
 .btn:disabled { opacity: .55; cursor: not-allowed; }
-.stamp { font-size: 11.5px; color: var(--dim); font-variant-numeric: tabular-nums; min-width: 96px; }
+/* Data-freshness readout: a tier dot plus "MM-DD HH:MM 更新 · N 分钟前". */
+.stamp {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11.5px; color: var(--dim);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.stamp b { color: var(--muted); font-weight: 600; }
+.stamp-time { color: var(--dim); }
+.stamp-busy {
+  font-style: normal; color: var(--gold);
+  padding: 1px 7px; border-radius: 20px;
+  background: rgba(245,185,66,.1); border: 1px solid rgba(245,185,66,.26);
+}
+.stamp-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: #5d6b80; }
+.stamp.fresh .stamp-dot { background: var(--blue); }
+.stamp.aging .stamp-dot { background: var(--gold); }
+.stamp.stale .stamp-dot { background: var(--up); }
+.stamp.busy .stamp-dot { background: var(--blue); animation: stamp-pulse 1.2s ease-in-out infinite; }
+@keyframes stamp-pulse { 50% { opacity: .3; } }
 
 /* ---------- index bar ---------- */
 .idxbar {
@@ -751,6 +769,7 @@ tbody tr:last-child td { border-bottom: none; }
   .sentiment { margin-left: 12px; margin-right: 12px; }
   .toolbar .autoref { width: 100%; justify-content: space-between; }
   .ar-hint { min-width: 0; }
+  .stamp { white-space: normal; }
   .mgrid { grid-template-columns: repeat(2, 1fr); }
   .sec-grid { grid-template-columns: 1fr; }
   .drawer { width: 100vw; }
