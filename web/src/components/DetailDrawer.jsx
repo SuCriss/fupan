@@ -11,7 +11,18 @@ const PERIODS = [
   ['quarter', '季线'],
 ]
 
-export function DetailDrawer({ code, onClose }) {
+/** Signed 亿/万 formatting for money-flow amounts (yuan). */
+function fmtMoney(v) {
+  if (v == null || Number.isNaN(Number(v))) return '--'
+  const n = Number(v)
+  const abs = Math.abs(n)
+  const sign = n > 0 ? '+' : n < 0 ? '-' : ''
+  if (abs >= 1e8) return `${sign}${(abs / 1e8).toFixed(2)}亿`
+  if (abs >= 1e4) return `${sign}${(abs / 1e4).toFixed(0)}万`
+  return `${sign}${abs.toFixed(0)}`
+}
+
+export function DetailDrawer({ code, onClose, onConcept }) {
   const [data, setData] = useState(null)
   const [error, setError] = useState('')
   const [period, setPeriod] = useState('day')
@@ -174,7 +185,17 @@ export function DetailDrawer({ code, onClose }) {
               {data.concepts?.length > 0 && (
                 <div className="concept-row">
                   <span className="lbl">概念</span>
-                  {data.concepts.map((c, i) => <i key={i}>{c}</i>)}
+                  {data.concepts.map((c, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      className="concept-chip"
+                      onClick={() => onConcept?.(c)}
+                      title={`查看「${c}」相关涨停`}
+                    >
+                      {c}
+                    </button>
+                  ))}
                 </div>
               )}
 
@@ -269,6 +290,113 @@ export function DetailDrawer({ code, onClose }) {
                       <div key={k}>
                         <div className="k">{k}</div>
                         <div className="v">{v}</div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {/* Limit-up track record, derived from the daily bars above. */}
+              {data.limitStats && data.limitStats.limitUps > 0 && (
+                <>
+                  <div className="sec-t">
+                    涨停记录
+                    <span className="sec-note">近 {data.limitStats.window} 个交易日</span>
+                  </div>
+                  <div className="mgrid">
+                    {[
+                      ['涨停次数', data.limitStats.limitUps],
+                      ['晋级次数', data.limitStats.promoted],
+                      ['晋级率', data.limitStats.promoteRate == null ? '--' : `${data.limitStats.promoteRate}%`],
+                      ['封板率', data.limitStats.sealRate == null ? '--' : `${data.limitStats.sealRate}%`],
+                      ['炸板次数', data.limitStats.broken],
+                      [
+                        '次日均涨',
+                        <span className={cls(data.limitStats.avgNextChg)}>
+                          {data.limitStats.avgNextChg == null ? '--' : pct(data.limitStats.avgNextChg)}
+                        </span>,
+                      ],
+                    ].map(([k, v]) => (
+                      <div key={k}>
+                        <div className="k">{k}</div>
+                        <div className="v">{v}</div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {/* Money flow: today's order-size split plus recent net inflow. */}
+              {data.moneyFlow?.today && (
+                <>
+                  <div className="sec-t">主力资金</div>
+                  <div className="flow-main">
+                    <span className="fl-k">主力净额</span>
+                    <span className={`fl-v ${cls(data.moneyFlow.today.main)}`}>
+                      {fmtMoney(data.moneyFlow.today.main)}
+                    </span>
+                  </div>
+                  <div className="flow-grid">
+                    {[
+                      ['超大单', data.moneyFlow.today.super],
+                      ['大单', data.moneyFlow.today.big],
+                      ['中单', data.moneyFlow.today.mid],
+                      ['小单', data.moneyFlow.today.small],
+                    ].map(([k, v]) => (
+                      <div className="flow-row" key={k}>
+                        <span className="fl-k">{k}</span>
+                        <span className={`fl-v ${cls(v)}`}>{fmtMoney(v)}</span>
+                      </div>
+                    ))}
+                  </div>
+                  {data.moneyFlow.history?.length > 0 && (
+                    <div className="flow-hist">
+                      {(() => {
+                        const hist = data.moneyFlow.history.slice(0, 6)
+                        const peak = Math.max(...hist.map((h) => Math.abs(h.main)), 1)
+                        return hist.map((h) => (
+                          <div className="fh-row" key={h.date}>
+                            <span className="fh-d">{(h.date || '').slice(5)}</span>
+                            <span className="fh-bar">
+                              <i
+                                className={h.main >= 0 ? 'up' : 'dn'}
+                                style={{ width: `${Math.max(2, (Math.abs(h.main) / peak) * 100)}%` }}
+                              />
+                            </span>
+                            <span className={`fh-v ${cls(h.main)}`}>{fmtMoney(h.main)}</span>
+                          </div>
+                        ))
+                      })()}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* Dragon-tiger list appearances. */}
+              {data.lhb?.length > 0 && (
+                <>
+                  <div className="sec-t">
+                    龙虎榜
+                    <span className="sec-note">近 {data.lhb.length} 次</span>
+                  </div>
+                  <div className="lhb-list">
+                    {data.lhb.map((r, i) => (
+                      <div className="lhb-item" key={`${r.date}-${i}`}>
+                        <div className="lhb-head">
+                          <span className="lhb-date">{r.date}</span>
+                          <span className={`lhb-chg ${cls(r.chg)}`}>{pct(r.chg)}</span>
+                          {r.nextChg != null && (
+                            <span className={`lhb-next ${cls(r.nextChg)}`}>
+                              次日 {pct(r.nextChg)}
+                            </span>
+                          )}
+                        </div>
+                        {r.reason && <div className="lhb-reason">{r.reason}</div>}
+                        <div className="lhb-nums">
+                          <span>买 {fmtMoney(r.buy)}</span>
+                          <span>卖 {fmtMoney(r.sell)}</span>
+                          <span className={cls(r.net)}>净 {fmtMoney(r.net)}</span>
+                        </div>
                       </div>
                     ))}
                   </div>

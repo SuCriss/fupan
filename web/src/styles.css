@@ -571,6 +571,62 @@ tbody tr:last-child td { border-bottom: none; }
   background: rgba(245,185,66,.1); color: #e8c778;
   border: 1px solid rgba(245,185,66,.26);
 }
+/* Clickable concept tags jump back to the limit-up pool filtered by theme. */
+.concept-row .concept-chip {
+  font-style: normal; font-size: 10.5px; padding: 2px 8px; border-radius: 4px;
+  background: rgba(245,185,66,.1); color: #e8c778;
+  border: 1px solid rgba(245,185,66,.26); transition: .12s;
+}
+.concept-row .concept-chip:hover {
+  background: rgba(245,185,66,.22); color: #fff; border-color: var(--gold);
+}
+.sec-note {
+  margin-left: 8px; font-size: 10.5px; font-weight: 400;
+  color: var(--dim); letter-spacing: 0;
+}
+
+/* ---- money flow ---------------------------------------------------- */
+.flow-main {
+  display: flex; align-items: baseline; justify-content: space-between;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  padding: 8px 12px; margin-bottom: 6px;
+}
+.flow-main .fl-v { font-size: 16px; }
+.flow-grid {
+  display: grid; grid-template-columns: repeat(2, 1fr); gap: 1px;
+  background: var(--line); border: 1px solid var(--line);
+  border-radius: 8px; overflow: hidden; margin-bottom: 8px;
+}
+.flow-row {
+  display: flex; align-items: center; justify-content: space-between;
+  background: var(--panel); padding: 7px 10px;
+}
+.fl-k { font-size: 11px; color: var(--dim); }
+.fl-v { font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.flow-hist { display: flex; flex-direction: column; gap: 3px; margin-bottom: 4px; }
+.fh-row { display: flex; align-items: center; gap: 8px; font-size: 10.5px; }
+.fh-d { width: 38px; flex: none; color: var(--dim); font-variant-numeric: tabular-nums; }
+.fh-bar { flex: 1; height: 6px; background: #1b2534; border-radius: 3px; overflow: hidden; }
+.fh-bar i { display: block; height: 100%; border-radius: 3px; }
+.fh-bar i.up { background: var(--up); }
+.fh-bar i.dn { background: var(--down); }
+.fh-v { width: 72px; text-align: right; font-variant-numeric: tabular-nums; }
+
+/* ---- dragon-tiger list --------------------------------------------- */
+.lhb-list { display: flex; flex-direction: column; gap: 6px; }
+.lhb-item {
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 8px; padding: 8px 10px;
+}
+.lhb-head { display: flex; align-items: center; gap: 8px; font-size: 11px; }
+.lhb-date { color: var(--dim); font-variant-numeric: tabular-nums; }
+.lhb-chg, .lhb-next { font-weight: 600; font-variant-numeric: tabular-nums; }
+.lhb-next { margin-left: auto; font-size: 10.5px; opacity: .85; }
+.lhb-reason { font-size: 11px; color: #9fb0c4; margin-top: 4px; line-height: 1.5; }
+.lhb-nums {
+  display: flex; gap: 12px; margin-top: 5px; font-size: 10.5px;
+  color: var(--dim); font-variant-numeric: tabular-nums;
+}
 .mgrid {
   display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px;
   background: var(--line); border: 1px solid var(--line);

@@ -871,7 +871,15 @@ export default function App() {
       </main>
 
       {detailCode && (
-        <DetailDrawer code={detailCode} onClose={() => setDetailCode(null)} />
+        <DetailDrawer
+          code={detailCode}
+          onClose={() => setDetailCode(null)}
+          onConcept={(name) => {
+            setDetailCode(null)
+            setQuery(name)
+            setTab('up')
+          }}
+        />
       )}
     </>
   )
