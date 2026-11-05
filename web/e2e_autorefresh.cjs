@@ -52,9 +52,10 @@ function check(name, ok, extra = '') {
   const hint1 = (await page.locator('.ar-hint').textContent()).trim()
   const pressed = await page.locator('.ar-switch').getAttribute('aria-pressed')
   check('点击后开启', on1 && pressed === 'true', `aria-pressed=${pressed}`)
+  // In session the hint counts down; outside it the hint must explain the pause.
   check(
-    '提示交易时段生效',
-    /下次 \d{2}:\d{2}/.test(hint1) || /交易中|集合竞价/.test(hint1),
+    '提示随交易时段变化',
+    /下次 \d{2}:\d{2}/.test(hint1) || /(交易中|集合竞价|午间休市|已收盘|休市)/.test(hint1),
     `hint="${hint1}"`,
   )
 
@@ -75,12 +76,14 @@ function check(name, ok, extra = '') {
   check('刷新后保持开启', on2, '')
   check('刷新后保持间隔', sel2 === '15', `select=${sel2}`)
 
-  // Market status reported by the backend drives the gate.
+  // The backend session state drives the gate; any of the five states is valid
+  // depending on when the suite runs.
   const market = await page.evaluate(async () => {
     const r = await fetch('/api/market')
     return r.json()
   })
-  check('后端行情状态正确', market.status === '交易中' || market.status === '集合竞价' || market.status === '午间休市', `status=${market.status}`)
+  const VALID = ['交易中', '集合竞价', '午间休市', '已收盘', '休市']
+  check('后端行情状态合法', VALID.includes(market.status), `status=${market.status}`)
 
   await page.screenshot({ path: 'auto-refresh.png', fullPage: false })
 
