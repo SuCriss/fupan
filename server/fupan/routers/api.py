@@ -239,7 +239,7 @@ def api_stock_ai(code: str) -> dict[str, Any]:
     """
     code = code.strip()
     trade_date = cfg.cn_today()
-    summary = llm.get_cached(code, trade_date)
+    summary = llm.get_cached_for(code, trade_date)
     state = (
         "ready"
         if summary
@@ -270,7 +270,7 @@ def api_stock(code: str, days: int = 600, refresh: bool = False, ai: bool = True
         raise HTTPException(status_code=404, detail=f"未找到 {code} 的行情")
 
     trade_date = cfg.cn_today()
-    summary = llm.get_cached(code, trade_date)
+    summary = llm.get_cached_for(code, trade_date)
     generating = False
     if ai and summary is None and llm.configured():
         generating = llm.submit(lambda c: detail.build_detail(c, days=days), code, trade_date)

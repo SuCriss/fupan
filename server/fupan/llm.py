@@ -44,7 +44,7 @@ _queue: ThreadPoolExecutor | None = None
 _inflight: set[str] = set()
 _lock = threading.Lock()
 
-SYSTEM_PROMPT = (
+SYSTEM_PROMPT_LIMITUP = (
     "你是A股涨停归因助手。只输出归因文本本身，不寒暄、不解释任务、不用表格、不用二级标题。\n"
     "严格按以下三行格式输出，每行以标签开头：\n"
     "核心逻辑：<一句话>\n"
@@ -57,6 +57,52 @@ SYSTEM_PROMPT = (
     "4) 严禁任何操作建议与预测性表述（追高、持有、兑现、买入、卖出、建议关注、"
     "明日重点、目标价、止盈止损、看涨看跌等），只做客观归因与风险描述。"
 )
+
+# Non-limit-up stocks are reachable through search. Asking for a "涨停归因" there
+# made the model answer with meta-commentary instead of an attribution, so the
+# framing follows the stock's actual state.
+SYSTEM_PROMPT_MOVE = (
+    "你是A股个股异动归因助手。只输出归因文本本身，不寒暄、不解释任务、不用表格、不用二级标题。\n"
+    "重要前提：这只股票今日并未涨停，严禁出现「涨停」「封板」「连板」「晋级」等表述，"
+    "也不要讨论涨停幅度或涨停价。\n"
+    "严格按以下三行格式输出，每行以标签开头：\n"
+    "核心逻辑：<一句话概括今日表现与主因>\n"
+    "驱动因素：<两到三个分点用分号隔开，只引用给定事实>\n"
+    "风险提示：<一到两个客观风险，不涉及操作>\n"
+    "硬性要求：\n"
+    "1) 只引用给定结构中的事实，严禁编造新闻、研报、传闻或未给出的数字；\n"
+    "2) 依据不足时写'暂无公开依据'，不要推测；\n"
+    "3) 全文不超过180字；\n"
+    "4) 严禁任何操作建议与预测性表述（追高、持有、兑现、买入、卖出、建议关注、"
+    "明日重点、目标价、止盈止损、看涨看跌等），只做客观归因与风险描述。"
+)
+
+# Kept for callers that still import the old name.
+SYSTEM_PROMPT = SYSTEM_PROMPT_LIMITUP
+
+
+def is_limit_up(payload: dict[str, Any]) -> bool:
+    """Whether this stock is sealed at its daily limit right now.
+
+    Derived from the quote against the board's own limit, so ST (5%) and the
+    20%/30% boards are handled without a separate lookup.
+    """
+    quote = payload.get("quote") or {}
+    try:
+        chg = float(quote.get("chg") or 0)
+        limit = float(payload.get("limitPct") or 10)
+    except (TypeError, ValueError):
+        return False
+    return chg >= limit - cfg.SEALED_TOLERANCE
+
+
+def cache_key(trade_date: str, limit_up: bool) -> str:
+    """Summaries are cached per day *and* per framing.
+
+    A stock can move from "not limit-up" to "limit-up" intraday; keying by mode
+    keeps a morning 异动归因 from being shown as the closing 涨停归因.
+    """
+    return f"{trade_date}#{'lu' if limit_up else 'mv'}"
 
 
 def _conn() -> sqlite3.Connection:
@@ -109,6 +155,19 @@ def get_cached(code: str, trade_date: str) -> str | None:
         return None
 
 
+def get_cached_for(code: str, trade_date: str) -> str | None:
+    """Look up a summary for this day regardless of which framing produced it.
+
+    The HTTP layer does not know the stock's limit-up state without paying for a
+    quote, so it asks for either mode and takes whichever exists.
+    """
+    for limit_up in (True, False):
+        hit = get_cached(code, cache_key(trade_date, limit_up))
+        if hit:
+            return hit
+    return None
+
+
 def _save(code: str, trade_date: str, summary: str, model: str) -> None:
     try:
         with _conn() as c:
@@ -127,10 +186,13 @@ def _save(code: str, trade_date: str, summary: str, model: str) -> None:
 def _build_facts(payload: dict[str, Any]) -> str:
     snap = payload.get("snapshot") or {}
     quote = payload.get("quote") or {}
+    limit_up = is_limit_up(payload)
     lines = [
         f"股票：{payload.get('name')}({payload.get('code')})",
         f"今日涨幅：{quote.get('chg')}%  现价：{quote.get('price')}",
         f"市场：{payload.get('board')}  涨跌停幅度：±{payload.get('limitPct')}%",
+        # State the fact explicitly so the model cannot invent (or deny) it.
+        "今日状态：" + ("涨停（已封板）" if limit_up else "未涨停"),
     ]
     if snap:
         lines += [
@@ -230,20 +292,24 @@ def _sanitize(text: str) -> str:
     return out
 
 
-def _call_llm(facts: str) -> str:
+def _call_llm(facts: str, limit_up: bool = True) -> str:
     base = os.environ["FUPAN_LLM_BASE_URL"].rstrip("/")
     key = os.environ["FUPAN_LLM_API_KEY"]
     model = os.environ.get("FUPAN_LLM_MODEL", "gpt-4o-mini")
     timeout = float(os.environ.get("FUPAN_LLM_TIMEOUT", "45"))
 
+    system = SYSTEM_PROMPT_LIMITUP if limit_up else SYSTEM_PROMPT_MOVE
+    ask = (
+        "请按上述三行格式，为下面这只股票写涨停归因：\n\n"
+        if limit_up
+        else "请按上述三行格式，为下面这只股票写今日异动归因（它今日并未涨停）：\n\n"
+    )
+
     body = json.dumps({
         "model": model,
         "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {
-                "role": "user",
-                "content": "请按上述三行格式，为下面这只股票写涨停归因：\n\n" + facts,
-            },
+            {"role": "system", "content": system},
+            {"role": "user", "content": ask + facts},
         ],
         "temperature": 0.3,
         "max_tokens": 1200,
@@ -272,14 +338,16 @@ def generate_sync(payload: dict[str, Any], trade_date: str, force: bool = False)
     if not configured():
         return None
     code = payload["code"]
+    limit_up = is_limit_up(payload)
+    key = cache_key(trade_date, limit_up)
     if not force:
-        cached = get_cached(code, trade_date)
+        cached = get_cached(code, key)
         if cached:
             return cached
 
     facts = _build_facts(payload)
     try:
-        summary = _call_llm(facts)
+        summary = _call_llm(facts, limit_up)
     except urllib.error.HTTPError as exc:
         detail = exc.read()[:200].decode("utf-8", "replace")
         log.warning("LLM HTTP %s for %s: %s", exc.code, code, detail)
@@ -294,7 +362,7 @@ def generate_sync(payload: dict[str, Any], trade_date: str, force: bool = False)
     if not summary:
         return None
     summary = _structure(summary)
-    _save(code, trade_date, summary, os.environ.get("FUPAN_LLM_MODEL", ""))
+    _save(code, key, summary, os.environ.get("FUPAN_LLM_MODEL", ""))
     return summary
 
 
@@ -316,7 +384,7 @@ def submit(code_payload_provider, code: str, trade_date: str) -> bool:
     with _lock:
         if key in _inflight:
             return False
-        if get_cached(code, trade_date):
+        if get_cached_for(code, trade_date):
             return False
         _inflight.add(key)
     _worker_init()
