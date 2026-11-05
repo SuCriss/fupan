@@ -143,6 +143,15 @@ def load_snapshot(date_str: str) -> dict[str, Any] | None:
         return None
 
 
+def snapshot_dates(limit: int = 500) -> list[str]:
+    """All persisted snapshot dates, newest first (for the sitemap)."""
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT date FROM snapshots ORDER BY date DESC LIMIT ?", (limit,)
+        ).fetchall()
+    return [r["date"] for r in rows]
+
+
 def save_universe(rows: list[dict[str, Any]]) -> None:
     """Persist the full-market code/name list for fast offline search."""
     now = int(time.time())

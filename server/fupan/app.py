@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from . import config as cfg, store
@@ -17,6 +17,7 @@ logging.basicConfig(
 )
 
 WEB_DIST = cfg.ROOT_DIR / "web" / "dist"
+SITE_BASE = "https://fupan.chrisite.eu.cc/"
 
 
 @asynccontextmanager
@@ -72,6 +73,22 @@ if WEB_DIST.exists():
         return FileResponse(f) if f.exists() else FileResponse(WEB_DIST / "index.html")
 
     @app.get("/sitemap.xml")
-    def sitemap() -> FileResponse:
-        f = WEB_DIST / "sitemap.xml"
-        return FileResponse(f) if f.exists() else FileResponse(WEB_DIST / "index.html")
+    def sitemap() -> Response:
+        """Dynamic sitemap: the home page plus one deep link per archive day."""
+        parts = [
+            f"<url><loc>{SITE_BASE}</loc>"
+            "<changefreq>daily</changefreq><priority>1.0</priority></url>"
+        ]
+        for d in store.snapshot_dates(500):
+            parts.append(
+                f"<url><loc>{SITE_BASE}?date={d}</loc>"
+                f"<lastmod>{d}</lastmod>"
+                "<changefreq>never</changefreq><priority>0.8</priority></url>"
+            )
+        xml = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+            + "".join(parts)
+            + "</urlset>"
+        )
+        return Response(content=xml, media_type="application/xml")
