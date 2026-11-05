@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { getStock, getWatch, addWatch, removeWatch } from '../lib/api'
+import { getStock, getStockAi, getWatch, addWatch, removeWatch } from '../lib/api'
 import { KlineChart, KlineSkeleton } from './Kline'
 import { MinuteChart } from './MinuteChart'
 import { fmtAmt, pct, cls, badgeCls } from '../lib/format'
@@ -76,14 +76,40 @@ export function DetailDrawer({ code, onClose, onConcept }) {
 
     // `refresh` bypasses the server's short-lived detail cache so a polled
     // request can pick up a freshly generated AI summary.
-    const load = async (refresh = false) => {
+    let polls = 0
+
+    /**
+     * While a summary is generating, poll the cheap AI-only endpoint. Polling
+     * the full detail would re-run six upstream fetches behind every tick.
+     */
+    const pollAi = async () => {
+      if (!alive || polls >= 80) return
+      polls += 1
       try {
-        const d = await getStock(code, refresh)
+        const a = await getStockAi(code)
+        if (!alive) return
+        if (a.status === 'ready' && a.summary) {
+          const d = await getStock(code) // cached server-side, one cheap read
+          if (alive) setData(d)
+          return
+        }
+        if (a.status === 'generating') {
+          clearTimeout(pollRef.current)
+          pollRef.current = setTimeout(pollAi, 3000)
+        }
+      } catch {
+        /* stop polling on a failed status read */
+      }
+    }
+
+    const load = async () => {
+      try {
+        const d = await getStock(code)
         if (!alive) return
         setData(d)
         if (d.ai?.status === 'generating') {
           clearTimeout(pollRef.current)
-          pollRef.current = setTimeout(() => load(true), 2500)
+          pollRef.current = setTimeout(pollAi, 3000)
         }
       } catch (e) {
         if (alive) setError(e.message || String(e))

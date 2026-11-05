@@ -525,6 +525,8 @@ export default function App() {
   const [nextAt, setNextAt] = useState(0)
   const [notifyOn, setNotifyOn] = useState(() => readPref('fupan_notify') === '1')
   const busyRef = useRef(false)
+  // Newest request that arrived while one was in flight (coalesced, not queued).
+  const pendingRef = useRef(null)
 
   const loadTrend = useCallback(() => {
     getSentiment(60)
@@ -535,9 +537,16 @@ export default function App() {
   /**
    * Load (and optionally rebuild) the review document.
    * `silent` keeps the auto-refresh from disabling the whole UI every cycle.
+   *
+   * Concurrent calls are *coalesced*, not dropped: a request that arrives while
+   * one is in flight replaces the queued one, so a burst of date switches ends on
+   * the day the user actually picked instead of silently keeping an older one.
    */
   const load = useCallback(async (force = false, targetDate = date, silent = false) => {
-    if (busyRef.current) return
+    if (busyRef.current) {
+      pendingRef.current = { force, targetDate, silent }
+      return
+    }
     busyRef.current = true
     if (!silent) setLoading(true)
     setError('')
@@ -580,6 +589,10 @@ export default function App() {
     } finally {
       busyRef.current = false
       if (!silent) setLoading(false)
+      // Run whatever arrived while this request was in flight.
+      const next = pendingRef.current
+      pendingRef.current = null
+      if (next) load(next.force, next.targetDate, next.silent)
     }
   }, [date, loadTrend])
 
@@ -599,11 +612,19 @@ export default function App() {
 
   useEffect(() => {
     load()
-    loadTrend()
+  }, [load])
+
+  // Indices and the sentiment trend do not depend on the selected archive day,
+  // so they are polled once here instead of re-firing on every date switch.
+  useEffect(() => {
     getMarket().then(setMarket).catch(() => {})
     const t = setInterval(() => getMarket().then(setMarket).catch(() => {}), 60000)
     return () => clearInterval(t)
-  }, [load, loadTrend])
+  }, [])
+
+  useEffect(() => {
+    loadTrend()
+  }, [loadTrend])
 
   // Back/forward navigation between archive deep links.
   useEffect(() => {

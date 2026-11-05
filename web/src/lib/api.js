@@ -35,6 +35,9 @@ export const searchStocks = (q) =>
 export const getStock = (code, refreshCache = false) =>
   request(`/api/stock/${code}${refreshCache ? '?refresh=true' : ''}`)
 
+/** Only the AI attribution block — cheap enough to poll while generating. */
+export const getStockAi = (code) => request(`/api/stock/${code}/ai`)
+
 export const getAiStatus = () => request('/api/ai/status')
 
 export const getDates = () => request('/api/dates')

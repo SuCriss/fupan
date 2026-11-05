@@ -137,14 +137,26 @@ def api_refresh_status() -> dict[str, Any]:
     return store.background_state()
 
 
+# Index quotes cost ~1s upstream and every open tab polls them, so a short TTL
+# collapses concurrent clients onto a single fetch. The last good value keeps
+# being served if the upstream hiccups.
+_MARKET_TTL = 20.0
+_market_cache: dict[str, Any] = {"at": 0.0, "indices": []}
+
+
 @router.get("/market")
 def api_market() -> dict[str, Any]:
-    indices = fetch.fetch_indices()
+    now = time.time()
+    if not _market_cache["indices"] or now - _market_cache["at"] > _MARKET_TTL:
+        indices = fetch.fetch_indices()
+        if indices:
+            _market_cache["indices"] = indices
+            _market_cache["at"] = now
     return {
         "ts": fetch.now_ts(),
         "status": _market_status(),
         "date": cfg.cn_today(),
-        "indices": indices,
+        "indices": _market_cache["indices"],
     }
 
 
@@ -216,6 +228,29 @@ def api_search(q: str = Query("", description="code or name fragment"), limit: i
             }
         )
     return {"q": term, "items": items, "universe": store.universe_size()}
+
+
+@router.get("/stock/{code}/ai")
+def api_stock_ai(code: str) -> dict[str, Any]:
+    """Just the AI attribution block for one stock.
+
+    The drawer polls this while a summary is being generated. Polling the full
+    detail instead would re-run the six upstream fetches behind every tick.
+    """
+    code = code.strip()
+    trade_date = cfg.cn_today()
+    summary = llm.get_cached(code, trade_date)
+    state = (
+        "ready"
+        if summary
+        else ("generating" if llm.pending(code, trade_date) else "unavailable")
+    )
+    return {
+        "enabled": llm.configured(),
+        "status": state,
+        "summary": summary,
+        "model": llm.status().get("model"),
+    }
 
 
 @router.get("/stock/{code}")
