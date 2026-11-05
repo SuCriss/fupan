@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import sqlite3
 import threading
 import time
@@ -217,19 +218,56 @@ def _build_facts(payload: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-# The model occasionally renames the third section. Normalising keeps the card's
-# three rows consistent even when the label drifts.
+# The model occasionally renames the three sections or numbers them. Normalising
+# keeps the card's three rows consistent even when the label drifts.
 _LABELS = {
     "核心逻辑": "核心逻辑",
+    "今日表现": "核心逻辑",
     "驱动因素": "驱动因素",
+    "异动归因": "驱动因素",
+    "归因判断": "驱动因素",
     "风险提示": "风险提示",
     "风险因素": "风险提示",
     "风险点": "风险提示",
-    "风险": "风险提示",
+    "风险与关注": "风险提示",
+    "结论与关注": "风险提示",
     "结论与提示": "风险提示",
     "注意事项": "风险提示",
 }
 _LABEL_RE = "|".join(sorted(_LABELS, key=len, reverse=True))
+# Accept "1." / "2、" / "3)" style numbering in front of a label.
+_NUM_PREFIX = r"(?:[0-9]{1,2}\s*[.、)）]\s*)?"
+
+
+# Model chatter about the prompt itself ("I cannot see the format you mentioned")
+# is never product content; drop those sentences before structuring the reply.
+_META_RE = re.compile(
+    r"本对话|你指的|请把原文|贴一下|我再对齐|我看不到|看不到你|上述三行|上述格式|"
+    r"模板输出|以下按|作为(?:AI|人工智能)|我无法|请提供|如果你需要|请明确"
+)
+
+
+def _strip_meta(text: str) -> str:
+    """Remove sentences where the model talks about the instruction instead."""
+    import re as _re
+
+    kept: list[str] = []
+    for line in text.split("\n"):
+        # Keep the label but drop a meta clause that follows it.
+        label = ""
+        body = line
+        m = _re.match(rf"^{_NUM_PREFIX}({_LABEL_RE})\s*[:：]\s*(.*)$", line.strip())
+        if m:
+            label, body = m.group(1), m.group(2)
+        if not body.strip():
+            continue
+        sentences = [s for s in _re.split(r"(?<=[。；;])", body) if s.strip()]
+        clean = [s for s in sentences if not _META_RE.search(s)]
+        if not clean:
+            continue
+        rebuilt = "".join(clean).strip()
+        kept.append(f"{label}：{rebuilt}" if label else rebuilt)
+    return "\n".join(kept)
 
 
 def _structure(raw: str) -> str:
@@ -241,7 +279,7 @@ def _structure(raw: str) -> str:
     import re
 
     text = raw.strip()
-    labelled = re.findall(rf"({_LABEL_RE})\s*[:：]\s*(.*)", text)
+    labelled = re.findall(rf"{_NUM_PREFIX}({_LABEL_RE})\s*[:：]\s*(.*)", text)
     if len(labelled) >= 2:
         found: dict[str, str] = {}
         for label, value in labelled:
@@ -316,11 +354,29 @@ def _call_llm(facts: str, limit_up: bool = True) -> str:
     timeout = float(os.environ.get("FUPAN_LLM_TIMEOUT", "45"))
 
     system = SYSTEM_PROMPT_LIMITUP if limit_up else SYSTEM_PROMPT_MOVE
-    ask = (
-        "请按上述三行格式，为下面这只股票写涨停归因：\n\n"
-        if limit_up
-        else "请按上述三行格式，为下面这只股票写今日异动归因（它今日并未涨停）：\n\n"
-    )
+    # The format is repeated inline rather than referenced as "上述": some
+    # OpenAI-compatible gateways drop or flatten the system role, and a model that
+    # cannot see the system prompt then answers with meta-commentary instead of an
+    # attribution.
+    if limit_up:
+        ask = (
+            "请为下面这只今日涨停的股票写涨停归因。\n"
+            "只输出下面三行，每行以标签开头，不要任何前言、说明或额外标题：\n"
+            "核心逻辑：<一句话>\n"
+            "驱动因素：<两到三个分点，用分号隔开，只引用给定事实>\n"
+            "风险提示：<一到两个客观风险>\n\n"
+            "【股票事实】\n"
+        )
+    else:
+        ask = (
+            "请为下面这只今日【未涨停】的股票写今日异动归因。\n"
+            "严禁出现「涨停」「封板」「连板」「晋级」等表述，也不要讨论涨停价。\n"
+            "只输出下面三行，每行以标签开头，不要任何前言、说明或额外标题：\n"
+            "核心逻辑：<一句话概括今日表现与主因>\n"
+            "驱动因素：<两到三个分点，用分号隔开，只引用给定事实>\n"
+            "风险提示：<一到两个客观风险>\n\n"
+            "【股票事实】\n"
+        )
 
     body = json.dumps({
         "model": model,
@@ -376,6 +432,7 @@ def generate_sync(payload: dict[str, Any], trade_date: str, force: bool = False)
     if not summary:
         return None
     summary = _sanitize(summary)
+    summary = _strip_meta(summary)
     if not summary:
         return None
     summary = _structure(summary)
