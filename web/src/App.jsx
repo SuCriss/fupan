@@ -14,6 +14,7 @@ import { fmtAmt, pct, cls, badgeCls } from './lib/format'
 import StockSearch from './components/StockSearch'
 import { SentimentPanel } from './components/Sentiment'
 import { SectorGrid, SectorDetail } from './components/Sector'
+import { ErrorBoundary } from './components/ErrorBoundary'
 
 // The drawer carries the charting code (K-line, minute chart), which is only
 // needed once a stock is opened. Keeping it out of the initial bundle speeds up
@@ -960,15 +961,17 @@ export default function App() {
 
       {detailCode && (
         <React.Suspense fallback={<div className="mask" />}>
-          <DetailDrawer
-            code={detailCode}
-            onClose={() => setDetailCode(null)}
-            onConcept={(name) => {
-              setDetailCode(null)
-              setQuery(name)
-              setTab('up')
-            }}
-          />
+          <ErrorBoundary resetKey={detailCode}>
+            <DetailDrawer
+              code={detailCode}
+              onClose={() => setDetailCode(null)}
+              onConcept={(name) => {
+                setDetailCode(null)
+                setQuery(name)
+                setTab('up')
+              }}
+            />
+          </ErrorBoundary>
         </React.Suspense>
       )}
     </>

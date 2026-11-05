@@ -77,6 +77,12 @@ export function KlineChart({ bars = [], analysis = null, period = 'day', width =
     return [a, b]
   }, [view, total])
 
+  // Any window change invalidates the hovered index; clear it before it can be
+  // used against a shorter `rows`.
+  useEffect(() => {
+    setHover(null)
+  }, [win])
+
   const rows = useMemo(() => bars.slice(win[0], win[1]), [bars, win])
 
   const geo = useMemo(() => {
@@ -203,6 +209,7 @@ export function KlineChart({ bars = [], analysis = null, period = 'day', width =
     const centre = (a + b) / 2
     let nextA = Math.round(Math.max(0, Math.min(centre - nextSize / 2, total - nextSize)))
     setView(nextSize >= total ? null : [nextA, nextA + nextSize])
+    setHover(null)
   }
 
   const resetZoom = () => {
@@ -223,8 +230,13 @@ export function KlineChart({ bars = [], analysis = null, period = 'day', width =
     priceLabels.push({ y: yP(gv), v: gv })
   }
 
-  const hoverBar = hover != null ? rows[hover] : null
-  const hoverPrev = hover != null && hover > 0 ? rows[hover - 1].c : hoverBar?.o
+  // `hover` can outlive the window it was set in: zooming shrinks `rows`, so the
+  // index must be re-validated on every render or `rows[hover].c` throws and the
+  // whole page unmounts.
+  const hoverBar = hover != null && hover >= 0 && hover < n ? rows[hover] : null
+  const hoverPrev = hoverBar
+    ? (hover > 0 ? rows[hover - 1]?.c ?? hoverBar.o : hoverBar.o)
+    : null
   const hoverChg = hoverBar && hoverPrev ? ((hoverBar.c - hoverPrev) / hoverPrev) * 100 : 0
 
   const isZoomed = win[1] - win[0] < total || win[0] > 0
@@ -322,10 +334,10 @@ export function KlineChart({ bars = [], analysis = null, period = 'day', width =
           <path d={linePath(rows, 'dif', cx, yM)} fill="none" stroke="#f5b942" strokeWidth="1" />
           <path d={linePath(rows, 'dea', cx, yM)} fill="none" stroke="#4b8bff" strokeWidth="1" />
 
-          {hover != null && (
+          {hoverBar && (
             <g>
               <line x1={cx(hover)} y1={yTop} x2={cx(hover)} y2={mBot} stroke="#7d8ea3" strokeWidth="1" strokeDasharray="3 2" />
-              <line x1={PAD.l} y1={yP(rows[hover].c)} x2={PAD.l + plotW} y2={yP(rows[hover].c)}
+              <line x1={PAD.l} y1={yP(hoverBar.c)} x2={PAD.l + plotW} y2={yP(hoverBar.c)}
                 stroke="#7d8ea3" strokeWidth="1" strokeDasharray="3 2" />
             </g>
           )}
