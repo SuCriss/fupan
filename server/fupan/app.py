@@ -65,3 +65,13 @@ if WEB_DIST.exists():
     def favicon() -> FileResponse:
         icon = WEB_DIST / "favicon.svg"
         return FileResponse(icon) if icon.exists() else FileResponse(WEB_DIST / "index.html")
+
+    @app.get("/robots.txt")
+    def robots() -> FileResponse:
+        f = WEB_DIST / "robots.txt"
+        return FileResponse(f) if f.exists() else FileResponse(WEB_DIST / "index.html")
+
+    @app.get("/sitemap.xml")
+    def sitemap() -> FileResponse:
+        f = WEB_DIST / "sitemap.xml"
+        return FileResponse(f) if f.exists() else FileResponse(WEB_DIST / "index.html")
