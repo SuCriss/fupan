@@ -76,10 +76,12 @@ USER_AGENT = (
 )
 
 # Snapshot is cached this many seconds before a live refetch is attempted.
-# A background rebuild takes ~110s, so the TTL must be *longer* than that:
-# with a shorter TTL every page view re-triggers a build while one is already
-# regenerating, keeping the worker busy and the UI stuck on "refreshing".
-SNAPSHOT_TTL = int(os.environ.get("FUPAN_SNAPSHOT_TTL", "300"))
+# The TTL must stay *longer* than the slowest realistic build or every page view
+# re-triggers a build right after one finished, leaving the worker permanently
+# busy and the UI stuck on "refreshing". Measured full-market build times:
+#   ~110s after the close, but ~5-6 min during the session (4914 stocks over
+#   58 pages plus concept lookups). 900s leaves comfortable headroom.
+SNAPSHOT_TTL = int(os.environ.get("FUPAN_SNAPSHOT_TTL", "900"))
 
 # --- market rules ----------------------------------------------------------
 # Daily price-limit percentage by board / risk flag.
