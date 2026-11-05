@@ -46,17 +46,25 @@ def api_all(date: str = Query("", description="YYYYMMDD or YYYY-MM-DD; empty = l
 
     snap = store.cached_snapshot()
     if snap:
-        # Serve immediately; refresh in the background only when the cache is
-        # old *and* no build is already running (a build takes ~110s, longer
-        # than SNAPSHOT_TTL, so re-triggering while one runs would run forever).
+        # Serve immediately. A rebuild is only kicked off when the served data is
+        # genuinely old, nothing is already building, *and* the previous build
+        # started more than one TTL ago. That cooldown is what stops a build from
+        # chaining straight into the next one: a full-market build takes minutes,
+        # so without it the worker would never be idle and the UI would sit on
+        # "refreshing" indefinitely.
+        age = store.snapshot_age(snap)
+        stale = age > cfg.SNAPSHOT_TTL
+        state = store.background_state()
         if (
-            time.time() - store.mem_age() > cfg.SNAPSHOT_TTL
-            and not store.background_state()["running"]
+            stale
+            and not state["running"]
+            and time.time() - (state["last_started"] or 0) > cfg.SNAPSHOT_TTL
         ):
             store.refresh_in_background()
+            state = store.background_state()
         snap = dict(snap)
-        snap["stale"] = store.mem_age() > cfg.SNAPSHOT_TTL
-        snap["refreshing"] = store.background_state()["running"]
+        snap["stale"] = stale
+        snap["refreshing"] = state["running"]
         return _with_sentiment(snap)
 
     # Cold cache: the very first request has to wait for the build.

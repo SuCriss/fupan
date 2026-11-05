@@ -272,6 +272,24 @@ def mem_age() -> float:
     return time.time() - _mem["at"]
 
 
+def snapshot_age(payload: dict[str, Any] | None) -> float:
+    """Age of a snapshot document in seconds, from its own build timestamp.
+
+    The payload's ``ts`` is milliseconds. Deriving freshness from the document
+    itself (rather than the process-local ``_mem`` cache) means a restart, or a
+    payload loaded back from SQLite, still reports a truthful age.
+    """
+    if not payload:
+        return float("inf")
+    ts = payload.get("ts")
+    if not ts:
+        return float("inf")
+    try:
+        return max(0.0, time.time() - float(ts) / 1000.0)
+    except (TypeError, ValueError):
+        return float("inf")
+
+
 def build_snapshot(force: bool = False) -> dict[str, Any]:
     """Fetch, analyse and cache a full-market snapshot for today."""
     today = date.today().isoformat()
