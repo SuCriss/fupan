@@ -217,6 +217,21 @@ def _build_facts(payload: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+# The model occasionally renames the third section. Normalising keeps the card's
+# three rows consistent even when the label drifts.
+_LABELS = {
+    "核心逻辑": "核心逻辑",
+    "驱动因素": "驱动因素",
+    "风险提示": "风险提示",
+    "风险因素": "风险提示",
+    "风险点": "风险提示",
+    "风险": "风险提示",
+    "结论与提示": "风险提示",
+    "注意事项": "风险提示",
+}
+_LABEL_RE = "|".join(sorted(_LABELS, key=len, reverse=True))
+
+
 def _structure(raw: str) -> str:
     """Normalise the reply into the three labelled lines the UI renders.
 
@@ -226,15 +241,17 @@ def _structure(raw: str) -> str:
     import re
 
     text = raw.strip()
-    labelled = re.findall(r"(核心逻辑|驱动因素|风险提示)\s*[:：]\s*(.*)", text)
+    labelled = re.findall(rf"({_LABEL_RE})\s*[:：]\s*(.*)", text)
     if len(labelled) >= 2:
-        found = {k: v.strip() for k, v in labelled if v.strip()}
-        lines = []
-        for key in ("核心逻辑", "驱动因素", "风险提示"):
-            if key in found:
-                lines.append(f"{key}：{found[key]}")
-        # Preserve any trailing unlabelled content that framed a real point.
-        return "\n".join(lines)
+        found: dict[str, str] = {}
+        for label, value in labelled:
+            key = _LABELS.get(label, label)
+            body = value.strip()
+            if body and key not in found:
+                found[key] = body
+        lines = [f"{k}：{found[k]}" for k in ("核心逻辑", "驱动因素", "风险提示") if k in found]
+        if lines:
+            return "\n".join(lines)
 
     sentences = [s for s in re.split(r"(?<=[。；])", text) if s.strip()]
     if not sentences:
