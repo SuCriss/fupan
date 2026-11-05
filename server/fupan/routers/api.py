@@ -8,9 +8,17 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 
-from .. import analysis, concepts, config as cfg, detail, fetch, indicators, llm, store
+from .. import analysis, concepts, config as cfg, detail, fetch, indicators, llm, sentiment, store
 
 router = APIRouter(prefix="/api", tags=["fupan"])
+
+
+def _with_sentiment(doc: dict[str, Any]) -> dict[str, Any]:
+    """Attach the composite sentiment reading computed from this document."""
+    doc["sentiment"] = sentiment.score(
+        doc.get("stats"), (doc.get("compare") or {}).get("promotionRate")
+    )
+    return doc
 
 
 @router.get("/health")
@@ -32,7 +40,7 @@ def api_all(date: str = Query("", description="YYYYMMDD or YYYY-MM-DD; empty = l
         cached = store.load_snapshot(iso)
         if cached:
             cached["stale"] = True
-            return cached
+            return _with_sentiment(cached)
         # Unknown historical date: only today can be fetched live.
         raise HTTPException(status_code=404, detail=f"暂无 {iso} 的快照数据")
 
@@ -49,7 +57,7 @@ def api_all(date: str = Query("", description="YYYYMMDD or YYYY-MM-DD; empty = l
         snap = dict(snap)
         snap["stale"] = store.mem_age() > cfg.SNAPSHOT_TTL
         snap["refreshing"] = store.background_state()["running"]
-        return snap
+        return _with_sentiment(snap)
 
     # Cold cache: the very first request has to wait for the build.
     store.refresh_in_background()
@@ -60,9 +68,34 @@ def api_all(date: str = Query("", description="YYYYMMDD or YYYY-MM-DD; empty = l
             snap = dict(snap)
             snap["stale"] = False
             snap["refreshing"] = store.background_state()["running"]
-            return snap
+            return _with_sentiment(snap)
         time.sleep(1.5)
     raise HTTPException(status_code=503, detail="快照构建超时，请稍后重试")
+
+
+@router.get("/sentiment")
+def api_sentiment(days: int = Query(30, ge=1, le=120)) -> dict[str, Any]:
+    """Daily sentiment score trend across recent stored snapshots."""
+    series = []
+    for row in store.snapshot_series(days):
+        s = sentiment.score(row["stats"], row["promotionRate"])
+        if s["score"] is None:
+            continue
+        series.append(
+            {
+                "date": row["date"],
+                "score": s["score"],
+                "label": s["label"],
+                "tone": s["tone"],
+                "upCount": row["stats"].get("upCount", 0),
+                "downCount": row["stats"].get("downCount", 0),
+                "sealRate": row["stats"].get("sealRate", 0),
+                "brokenRate": row["stats"].get("brokenRate", 0),
+                "maxBoard": row["stats"].get("maxBoard", 0),
+                "lianbanCount": row["stats"].get("lianbanCount", 0),
+            }
+        )
+    return {"list": series}
 
 
 

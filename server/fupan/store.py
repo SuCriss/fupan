@@ -152,6 +152,28 @@ def snapshot_dates(limit: int = 500) -> list[str]:
     return [r["date"] for r in rows]
 
 
+def snapshot_series(limit: int = 30) -> list[dict[str, Any]]:
+    """Recent snapshots reduced to what the sentiment trend needs."""
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT date, payload FROM snapshots ORDER BY date DESC LIMIT ?", (limit,)
+        ).fetchall()
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        try:
+            payload = json.loads(r["payload"])
+        except (json.JSONDecodeError, TypeError):
+            continue
+        out.append(
+            {
+                "date": r["date"],
+                "stats": payload.get("stats") or {},
+                "promotionRate": (payload.get("compare") or {}).get("promotionRate"),
+            }
+        )
+    return out
+
+
 def save_universe(rows: list[dict[str, Any]]) -> None:
     """Persist the full-market code/name list for fast offline search."""
     now = int(time.time())

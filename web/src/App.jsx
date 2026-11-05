@@ -7,10 +7,12 @@ import {
   getDates,
   getWatch,
   removeWatch,
+  getSentiment,
 } from './lib/api'
 import { fmtAmt, pct, cls, badgeCls } from './lib/format'
 import { DetailDrawer } from './components/DetailDrawer'
 import StockSearch from './components/StockSearch'
+import { SentimentPanel } from './components/Sentiment'
 
 const TABS = [
   { key: 'watch', label: '自选' },
@@ -465,6 +467,13 @@ export default function App() {
   const [date, setDate] = useState(readDateFromUrl)
   const [dateInput, setDateInput] = useState('')
   const [dates, setDates] = useState([])
+  const [trend, setTrend] = useState([])
+
+  const loadTrend = useCallback(() => {
+    getSentiment(60)
+      .then((r) => setTrend(r.list || []))
+      .catch(() => {})
+  }, [])
 
   const load = useCallback(async (force = false, targetDate = date) => {
     setLoading(true)
@@ -494,13 +503,14 @@ export default function App() {
       setData(j)
       setDateInput(j.stats?.date || '')
       setStamp(new Date(j.ts).toLocaleTimeString('zh-CN', { hour12: false }))
+      if (force) loadTrend()
     } catch (e) {
       setError(e.message || String(e))
       setStamp('加载失败')
     } finally {
       setLoading(false)
     }
-  }, [date])
+  }, [date, loadTrend])
 
   /** Switch to an archive date ('' = latest) and reflect it in the URL. */
   const selectDate = useCallback((next) => {
@@ -518,10 +528,11 @@ export default function App() {
 
   useEffect(() => {
     load()
+    loadTrend()
     getMarket().then(setMarket).catch(() => {})
     const t = setInterval(() => getMarket().then(setMarket).catch(() => {}), 60000)
     return () => clearInterval(t)
-  }, [load])
+  }, [load, loadTrend])
 
   // Back/forward navigation between archive deep links.
   useEffect(() => {
@@ -627,6 +638,13 @@ export default function App() {
 
       <IndexBar market={market} />
       <Kpis stats={stats} />
+      {data?.sentiment && (
+        <SentimentPanel
+          sentiment={data.sentiment}
+          series={trend}
+          date={stats?.date || ''}
+        />
+      )}
 
       {stats?.sectors?.length > 0 && (
         <section className="sectors">

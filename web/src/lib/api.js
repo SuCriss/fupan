@@ -39,6 +39,10 @@ export const getAiStatus = () => request('/api/ai/status')
 
 export const getDates = () => request('/api/dates')
 
+/** Daily composite sentiment score series (newest first). */
+export const getSentiment = (days = 60) =>
+  request(`/api/sentiment?days=${encodeURIComponent(days)}`)
+
 export const getWatch = (codes = '') =>
   request(`/api/watch${codes ? `?codes=${encodeURIComponent(codes)}` : ''}`)
 

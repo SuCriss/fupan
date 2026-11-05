@@ -139,6 +139,44 @@ input { font-family: inherit; }
 .kpi .v { font-size: 23px; font-weight: 700; margin: 4px 0 2px; font-variant-numeric: tabular-nums; }
 .kpi .s { font-size: 11px; color: var(--dim); }
 
+/* ---------- sentiment thermometer ---------- */
+.sentiment {
+  display: grid; grid-template-columns: auto 1fr auto; gap: 18px;
+  align-items: center; margin: 0 22px 6px; padding: 12px 16px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 11px;
+}
+.se-gauge { display: flex; align-items: center; gap: 10px; }
+.se-score { font-size: 32px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+.se-score.u { color: var(--up); }
+.se-score.d { color: var(--down); }
+.se-score.g { color: var(--gold); }
+.se-meta { display: flex; flex-direction: column; gap: 3px; }
+.se-label {
+  font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 20px;
+  border: 1px solid currentColor; text-align: center;
+}
+.se-label.u { color: var(--up); }
+.se-label.d { color: var(--down); }
+.se-label.g { color: var(--gold); }
+.se-sub { font-size: 10.5px; color: var(--dim); }
+
+.se-factors { display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); gap: 6px 16px; }
+.se-f { display: flex; align-items: center; gap: 7px; font-size: 11px; }
+.se-fk { color: var(--muted); width: 56px; flex: none; }
+.se-fb { flex: 1; height: 5px; border-radius: 3px; background: var(--panel2); overflow: hidden; }
+.se-fb i { display: block; height: 100%; border-radius: 3px; background: linear-gradient(90deg, var(--gold), #ff8a95); }
+.se-fv { width: 34px; text-align: right; color: var(--text); font-variant-numeric: tabular-nums; }
+
+.se-trend { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+.se-spark { width: 240px; height: 52px; }
+.se-spark-empty { font-size: 11px; color: var(--dim); }
+
+@media (max-width: 860px) {
+  .sentiment { grid-template-columns: 1fr; gap: 12px; }
+  .se-trend { align-items: stretch; }
+  .se-spark { width: 100%; }
+}
+
 /* ---------- sectors ---------- */
 .sectors { display: flex; align-items: center; gap: 8px; padding: 0 22px 12px; flex-wrap: wrap; }
 .sectors .lbl { font-size: 11.5px; color: var(--dim); }
@@ -567,6 +605,7 @@ tbody tr:last-child td { border-bottom: none; }
   .view { padding: 10px 12px 30px; }
   .kpis, .sectors, .tabs, .toolbar, .idxbar { padding-left: 12px; padding-right: 12px; }
   .archive-bar { margin-left: 12px; margin-right: 12px; }
+  .sentiment { margin-left: 12px; margin-right: 12px; }
   .mgrid { grid-template-columns: repeat(2, 1fr); }
   .drawer { width: 100vw; }
 }
