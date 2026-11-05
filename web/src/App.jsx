@@ -1,10 +1,19 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { getReview, refresh as apiRefresh, refreshStatus, getMarket } from './lib/api'
+import {
+  getReview,
+  refresh as apiRefresh,
+  refreshStatus,
+  getMarket,
+  getDates,
+  getWatch,
+  removeWatch,
+} from './lib/api'
 import { fmtAmt, pct, cls, badgeCls } from './lib/format'
 import { DetailDrawer } from './components/DetailDrawer'
 import StockSearch from './components/StockSearch'
 
 const TABS = [
+  { key: 'watch', label: '自选' },
   { key: 'leaders', label: '龙头榜' },
   { key: 'up', label: '涨停池' },
   { key: 'lb', label: '连板池' },
@@ -362,6 +371,87 @@ function Drawdown({ rows, onOpen }) {
   )
 }
 
+function WatchList({ onOpen }) {
+  const [rows, setRows] = useState(null)
+  const [err, setErr] = useState('')
+
+  const load = useCallback(() => {
+    getWatch()
+      .then((r) => { setRows(r.list || []); setErr('') })
+      .catch((e) => setErr(e.message || String(e)))
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  const remove = async (code) => {
+    try {
+      await removeWatch(code)
+      setRows((prev) => (prev || []).filter((x) => x.code !== code))
+    } catch (e) {
+      setErr(e.message || String(e))
+    }
+  }
+
+  if (err) return <div className="empty">{err}</div>
+  if (!rows) return <div className="empty">加载中…</div>
+  if (!rows.length) {
+    return (
+      <div className="empty">
+        自选股为空。
+        <br /><br />
+        打开任意个股详情，点右上角 ★ 即可加入自选，方便日后盯盘。
+      </div>
+    )
+  }
+
+  return (
+    <div className="tbl-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th className="l">代码</th><th className="l">名称</th>
+            <th>现价</th><th>涨幅</th><th>成交额</th><th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.code} onClick={() => onOpen(r.code)}>
+              <td className="l"><span className="code">{r.code}</span></td>
+              <td className="l"><b>{r.name || r.code}</b></td>
+              <td>{Number(r.price || 0).toFixed(2)}</td>
+              <td className={cls(r.chg)}>{pct(r.chg)}</td>
+              <td>{fmtAmt(r.amount)}</td>
+              <td>
+                <button
+                  className="star on"
+                  title="移出自选"
+                  onClick={(e) => { e.stopPropagation(); remove(r.code) }}
+                >
+                  ★
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+const DEFAULT_TITLE = 'A股涨停复盘 - 涨停板复盘·连板梯队·封板率·板块效应分析工具'
+
+/** Read the ?date=YYYY-MM-DD deep link (YYYYMMDD is also accepted). */
+function readDateFromUrl() {
+  try {
+    const raw = (new URLSearchParams(window.location.search).get('date') || '').trim()
+    if (/^\d{8}$/.test(raw)) return `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}`
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw
+  } catch {
+    /* no window / malformed URL */
+  }
+  return ''
+}
+
 export default function App() {
   const [data, setData] = useState(null)
   const [market, setMarket] = useState(null)
@@ -371,13 +461,17 @@ export default function App() {
   const [query, setQuery] = useState('')
   const [detailCode, setDetailCode] = useState(null)
   const [stamp, setStamp] = useState('--')
+  // '' means "latest"; otherwise a YYYY-MM-DD archive date.
+  const [date, setDate] = useState(readDateFromUrl)
   const [dateInput, setDateInput] = useState('')
+  const [dates, setDates] = useState([])
 
-  const load = useCallback(async (force = false) => {
+  const load = useCallback(async (force = false, targetDate = date) => {
     setLoading(true)
     setError('')
     try {
-      if (force) {
+      // Only the latest day can be rebuilt; archives are read-only.
+      if (force && !targetDate) {
         // The rebuild runs in a server-side worker thread (~90s, mostly the
         // previous-day K-line probes). Poll until it settles, then re-read.
         const asked = Date.now()
@@ -395,7 +489,7 @@ export default function App() {
         }
         if (!settled) throw new Error('刷新超时，请稍后重试')
       }
-      const j = await getReview()
+      const j = await getReview(targetDate)
       if (j.error) throw new Error(j.error)
       setData(j)
       setDateInput(j.stats?.date || '')
@@ -406,6 +500,20 @@ export default function App() {
     } finally {
       setLoading(false)
     }
+  }, [date])
+
+  /** Switch to an archive date ('' = latest) and reflect it in the URL. */
+  const selectDate = useCallback((next) => {
+    const d = next || ''
+    setDate(d)
+    try {
+      const url = new URL(window.location.href)
+      if (d) url.searchParams.set('date', d)
+      else url.searchParams.delete('date')
+      window.history.pushState({ date: d }, '', url)
+    } catch {
+      /* history unavailable */
+    }
   }, [])
 
   useEffect(() => {
@@ -415,10 +523,44 @@ export default function App() {
     return () => clearInterval(t)
   }, [load])
 
+  // Back/forward navigation between archive deep links.
+  useEffect(() => {
+    const onPop = () => setDate(readDateFromUrl())
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [])
+
+  // Available archive dates, newest first.
+  useEffect(() => {
+    getDates()
+      .then((r) => setDates((r.dates || []).map((x) => x.date)))
+      .catch(() => {})
+  }, [])
+
+  // Per-date <title> so each archive day has its own search snippet.
+  useEffect(() => {
+    const s = data?.stats
+    document.title = s?.date
+      ? `${s.date} A股涨停复盘 - 涨停${s.upCount ?? 0}家·最高${s.maxBoard ?? 0}板`
+      : DEFAULT_TITLE
+  }, [data])
+
   const openDetail = useCallback((code) => setDetailCode(code), [])
 
   const stats = data?.stats
   const pools = data?.pools || {}
+
+  // Archive navigation: the list is newest-first, so +1 is older, -1 newer.
+  const dateList = useMemo(() => {
+    const today = stats?.date
+    const list = [...dates]
+    if (today && !list.includes(today)) list.unshift(today)
+    return list
+  }, [dates, stats])
+  const curIdx = dateList.indexOf(date || stats?.date || '')
+  const prevDate = curIdx >= 0 ? dateList[curIdx + 1] : null // older
+  const nextDate = curIdx > 0 ? dateList[curIdx - 1] : null // newer
+  const isArchive = Boolean(date)
 
   useEffect(() => {
     if (detailCode) document.body.style.overflow = 'hidden'
@@ -438,20 +580,50 @@ export default function App() {
         </div>
         <div className="tools">
           <StockSearch onPick={openDetail} />
-          <input
-            className="inp"
-            type="date"
-            value={dateInput || ''}
-            onChange={(e) => setDateInput(e.target.value)}
-            title="选择历史日期（仅已缓存日期可用）"
-          />
-          <button className="btn" onClick={() => load(false)} disabled={loading}>最新</button>
-          <button className="btn primary" onClick={() => load(true)} disabled={loading}>
-            {loading ? '刷新中…' : '刷新数据'}
-          </button>
+          <div className="datenav">
+            <button
+              className="dnav"
+              onClick={() => prevDate && selectDate(prevDate)}
+              disabled={!prevDate || loading}
+              title={prevDate ? `上一交易日 ${prevDate}` : '没有更早的数据'}
+            >
+              ‹
+            </button>
+            <input
+              className="inp"
+              type="date"
+              value={dateInput || ''}
+              onChange={(e) => selectDate(e.target.value)}
+              title="选择历史日期（仅已缓存日期可用）"
+            />
+            <button
+              className="dnav"
+              onClick={() => nextDate && selectDate(nextDate)}
+              disabled={!nextDate || loading}
+              title={nextDate ? `下一交易日 ${nextDate}` : '已是最新'}
+            >
+              ›
+            </button>
+          </div>
+          {isArchive ? (
+            <button className="btn" onClick={() => selectDate('')} disabled={loading}>
+              返回最新
+            </button>
+          ) : (
+            <button className="btn primary" onClick={() => load(true)} disabled={loading}>
+              {loading ? '刷新中…' : '刷新数据'}
+            </button>
+          )}
           <span className="stamp">{stamp}</span>
         </div>
       </header>
+
+      {isArchive && (
+        <div className="archive-bar">
+          <span>正在查看 <b>{date}</b> 的历史复盘（只读）</span>
+          <button className="link" onClick={() => selectDate('')}>回到最新 →</button>
+        </div>
+      )}
 
       <IndexBar market={market} />
       <Kpis stats={stats} />
@@ -496,7 +668,9 @@ export default function App() {
       </div>
 
       <main className="view">
-        {error ? (
+        {tab === 'watch' ? (
+          <WatchList onOpen={openDetail} />
+        ) : error ? (
           <div className="empty">
             数据加载失败：{error}
             <br /><br />

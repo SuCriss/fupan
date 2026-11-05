@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { getStock } from '../lib/api'
+import { getStock, getWatch, addWatch, removeWatch } from '../lib/api'
 import { KlineChart, KlineSkeleton } from './Kline'
 import { MinuteChart } from './MinuteChart'
 import { fmtAmt, pct, cls, badgeCls } from '../lib/format'
@@ -17,8 +17,39 @@ export function DetailDrawer({ code, onClose }) {
   const [period, setPeriod] = useState('day')
   const [showMinute, setShowMinute] = useState(false)
   const [width, setWidth] = useState(760)
+  const [starred, setStarred] = useState(false)
+  const [starBusy, setStarBusy] = useState(false)
   const chartRef = useRef(null)
   const pollRef = useRef(null)
+
+  // Reflect the current watchlist membership for this code.
+  useEffect(() => {
+    let alive = true
+    getWatch()
+      .then((r) => {
+        if (alive) setStarred((r.list || []).some((x) => x.code === code))
+      })
+      .catch(() => {})
+    return () => { alive = false }
+  }, [code])
+
+  const toggleStar = async () => {
+    if (starBusy) return
+    setStarBusy(true)
+    try {
+      if (starred) {
+        await removeWatch(code)
+        setStarred(false)
+      } else {
+        await addWatch(code)
+        setStarred(true)
+      }
+    } catch {
+      /* leave the previous state on failure */
+    } finally {
+      setStarBusy(false)
+    }
+  }
 
   useEffect(() => {
     let alive = true
@@ -107,6 +138,16 @@ export function DetailDrawer({ code, onClose }) {
               ) : '加载中…'}
             </p>
           </div>
+          <button
+            className={`star${starred ? ' on' : ''}`}
+            onClick={toggleStar}
+            disabled={starBusy}
+            title={starred ? '移出自选' : '加入自选'}
+            aria-label={starred ? '移出自选' : '加入自选'}
+            aria-pressed={starred}
+          >
+            {starred ? '★' : '☆'}
+          </button>
           <button className="close" onClick={onClose} title="关闭">✕</button>
         </div>
 
