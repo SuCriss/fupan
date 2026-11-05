@@ -11,10 +11,16 @@ import {
   getSectors,
 } from './lib/api'
 import { fmtAmt, pct, cls, badgeCls } from './lib/format'
-import { DetailDrawer } from './components/DetailDrawer'
 import StockSearch from './components/StockSearch'
 import { SentimentPanel } from './components/Sentiment'
 import { SectorGrid, SectorDetail } from './components/Sector'
+
+// The drawer carries the charting code (K-line, minute chart), which is only
+// needed once a stock is opened. Keeping it out of the initial bundle speeds up
+// first paint; it is prefetched on idle so the first open is still instant.
+const DetailDrawer = React.lazy(() =>
+  import('./components/DetailDrawer').then((m) => ({ default: m.DetailDrawer }))
+)
 
 const TABS = [
   { key: 'watch', label: '自选' },
@@ -615,6 +621,19 @@ export default function App() {
       .catch(() => setSectors([]))
   }, [data])
 
+  // Warm the lazily-split drawer chunk once the page is idle: first paint stays
+  // lean, but the first stock click still opens without a network stall.
+  useEffect(() => {
+    const warm = () => { import('./components/DetailDrawer').catch(() => {}) }
+    const ric = window.requestIdleCallback
+    if (ric) {
+      const id = ric(warm, { timeout: 3000 })
+      return () => window.cancelIdleCallback?.(id)
+    }
+    const id = setTimeout(warm, 1500)
+    return () => clearTimeout(id)
+  }, [])
+
   // Per-date <title> so each archive day has its own search snippet.
   useEffect(() => {
     const s = data?.stats
@@ -894,15 +913,17 @@ export default function App() {
       </main>
 
       {detailCode && (
-        <DetailDrawer
-          code={detailCode}
-          onClose={() => setDetailCode(null)}
-          onConcept={(name) => {
-            setDetailCode(null)
-            setQuery(name)
-            setTab('up')
-          }}
-        />
+        <React.Suspense fallback={<div className="mask" />}>
+          <DetailDrawer
+            code={detailCode}
+            onClose={() => setDetailCode(null)}
+            onConcept={(name) => {
+              setDetailCode(null)
+              setQuery(name)
+              setTab('up')
+            }}
+          />
+        </React.Suspense>
       )}
     </>
   )

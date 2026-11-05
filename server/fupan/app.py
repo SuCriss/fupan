@@ -19,6 +19,27 @@ logging.basicConfig(
 WEB_DIST = cfg.ROOT_DIR / "web" / "dist"
 SITE_BASE = "https://fupan.chrisite.eu.cc/"
 
+# Vite emits content-hashed asset names, so a given /assets file never changes:
+# it can be cached forever. The HTML shell is the opposite — every deploy rewrites
+# the hashes, and a heuristically cached shell would request files that no longer
+# exist, so it must revalidate on each visit.
+CACHE_IMMUTABLE = "public, max-age=31536000, immutable"
+CACHE_SHORT = "public, max-age=3600"
+CACHE_REVALIDATE = "no-cache, must-revalidate"
+
+NO_CACHE = {"Cache-Control": CACHE_REVALIDATE}
+SHORT_CACHE = {"Cache-Control": CACHE_SHORT}
+
+
+class _ImmutableStaticFiles(StaticFiles):
+    """StaticFiles that marks successfully served build output as immutable."""
+
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        if response.status_code == 200:
+            response.headers["Cache-Control"] = CACHE_IMMUTABLE
+        return response
+
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
@@ -56,21 +77,23 @@ app.include_router(api.router)
 if WEB_DIST.exists():
     assets = WEB_DIST / "assets"
     if assets.exists():
-        app.mount("/assets", StaticFiles(directory=assets), name="assets")
+        app.mount("/assets", _ImmutableStaticFiles(directory=assets), name="assets")
 
     @app.get("/")
     def index() -> FileResponse:
-        return FileResponse(WEB_DIST / "index.html")
+        # The shell must revalidate: each deploy rewrites the asset hashes, and a
+        # heuristically cached shell would ask for files that no longer exist.
+        return FileResponse(WEB_DIST / "index.html", headers=NO_CACHE)
 
     @app.get("/favicon.svg")
     def favicon() -> FileResponse:
         icon = WEB_DIST / "favicon.svg"
-        return FileResponse(icon) if icon.exists() else FileResponse(WEB_DIST / "index.html")
+        return FileResponse(icon, headers=SHORT_CACHE) if icon.exists() else FileResponse(WEB_DIST / "index.html", headers=NO_CACHE)
 
     @app.get("/robots.txt")
     def robots() -> FileResponse:
         f = WEB_DIST / "robots.txt"
-        return FileResponse(f) if f.exists() else FileResponse(WEB_DIST / "index.html")
+        return FileResponse(f, headers=SHORT_CACHE) if f.exists() else FileResponse(WEB_DIST / "index.html", headers=NO_CACHE)
 
     @app.get("/sitemap.xml")
     def sitemap() -> Response:
