@@ -8,3 +8,6 @@ server/.venv/
 __pycache__/
 *.pyc
 
+
+# e2e screenshot artifacts
+web/*.png
