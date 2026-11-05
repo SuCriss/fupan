@@ -822,6 +822,7 @@ export default function App() {
             {dataTs ? (
               <>
                 {dataDay && <b>{dataDay.slice(5)}</b>}
+                {' '}
                 <span className="stamp-time">{updTime} 更新 · {ageText}</span>
               </>
             ) : (
