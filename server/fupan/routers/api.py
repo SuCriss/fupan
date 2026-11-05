@@ -129,7 +129,7 @@ def api_market() -> dict[str, Any]:
     return {
         "ts": fetch.now_ts(),
         "status": _market_status(),
-        "date": time.strftime("%Y-%m-%d"),
+        "date": cfg.cn_today(),
         "indices": indices,
     }
 
@@ -220,7 +220,7 @@ def api_stock(code: str, days: int = 600, refresh: bool = False, ai: bool = True
     if not payload:
         raise HTTPException(status_code=404, detail=f"未找到 {code} 的行情")
 
-    trade_date = time.strftime("%Y-%m-%d")
+    trade_date = cfg.cn_today()
     summary = llm.get_cached(code, trade_date)
     generating = False
     if ai and summary is None and llm.configured():
@@ -251,11 +251,15 @@ def api_dates() -> dict[str, Any]:
 
 
 def _market_status() -> str:
-    """Coarse A-share session state from the wall clock."""
-    lt = time.localtime()
-    if lt.tm_wday >= 5:
+    """Coarse A-share session state from the China-market wall clock.
+
+    The host runs in UTC, so this must not use ``time.localtime()`` — that made
+    a 10:58 Beijing session report "已收盘".
+    """
+    lt = cfg.cn_now()
+    if lt.weekday() >= 5:
         return "休市"
-    hm = lt.tm_hour * 100 + lt.tm_min
+    hm = lt.hour * 100 + lt.minute
     if 915 <= hm < 925:
         return "集合竞价"
     if 930 <= hm <= 1130 or 1300 <= hm <= 1500:

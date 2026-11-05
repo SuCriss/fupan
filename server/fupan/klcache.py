@@ -11,7 +11,7 @@ import json
 import logging
 import sqlite3
 import time
-from datetime import date
+from datetime import datetime
 from typing import Any
 
 from . import config as cfg
@@ -62,7 +62,7 @@ def load(
         if len(cached) >= min_bars:
             return cached
 
-    today = today or date.today().isoformat()
+    today = today or cfg.cn_today()
     with _conn() as c:
         meta = c.execute("SELECT fetched_at FROM kline_meta WHERE code=?", (code,)).fetchone()
         if not meta:
@@ -76,7 +76,7 @@ def load(
     if min_bars and len(rows) < min_bars:
         return None
 
-    fetched_day = time.strftime("%Y-%m-%d", time.localtime(meta["fetched_at"]))
+    fetched_day = datetime.fromtimestamp(meta["fetched_at"], cfg.CN_TZ).strftime("%Y-%m-%d")
     last_bar = rows[-1]["bar_date"]
     # Same-day write that already saw today's bar, or a write after today's
     # close (the newest bar is today or later). Otherwise refetch.

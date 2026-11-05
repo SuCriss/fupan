@@ -3,7 +3,26 @@
 from __future__ import annotations
 
 import os
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+# The host runs in UTC, but every market rule here is about the China session.
+try:
+    from zoneinfo import ZoneInfo
+
+    CN_TZ: timezone | ZoneInfo = ZoneInfo("Asia/Shanghai")
+except Exception:  # pragma: no cover - tzdata missing on minimal images
+    CN_TZ = timezone(timedelta(hours=8))
+
+
+def cn_now() -> datetime:
+    """Wall clock in the China market timezone."""
+    return datetime.now(CN_TZ)
+
+
+def cn_today() -> str:
+    """Today's date (YYYY-MM-DD) in the China market timezone."""
+    return cn_now().date().isoformat()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 ROOT_DIR = BASE_DIR.parent

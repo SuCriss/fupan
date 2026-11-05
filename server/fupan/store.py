@@ -11,7 +11,7 @@ import logging
 import sqlite3
 import threading
 import time
-from datetime import date, datetime
+from datetime import datetime
 from typing import Any
 
 from . import analysis, concepts, config as cfg, fetch, history, klcache, llm
@@ -259,7 +259,7 @@ def cached_snapshot() -> dict[str, Any] | None:
     Callers that only need to look something up (such as the stock drawer) must
     not trigger a full-market rebuild.
     """
-    today = date.today().isoformat()
+    today = cfg.cn_today()
     if _mem["key"] == today and _mem["payload"]:
         return _mem["payload"]
     return load_snapshot(today)
@@ -267,7 +267,7 @@ def cached_snapshot() -> dict[str, Any] | None:
 
 def mem_age() -> float:
     """Seconds since the in-memory snapshot was built (inf when absent)."""
-    if not _mem["payload"] or _mem["key"] != date.today().isoformat():
+    if not _mem["payload"] or _mem["key"] != cfg.cn_today():
         return float("inf")
     return time.time() - _mem["at"]
 
@@ -292,7 +292,7 @@ def snapshot_age(payload: dict[str, Any] | None) -> float:
 
 def build_snapshot(force: bool = False) -> dict[str, Any]:
     """Fetch, analyse and cache a full-market snapshot for today."""
-    today = date.today().isoformat()
+    today = cfg.cn_today()
     now = time.time()
     if not force and _mem["key"] == today and _mem["payload"] and now - _mem["at"] < cfg.SNAPSHOT_TTL:
         return _mem["payload"]
