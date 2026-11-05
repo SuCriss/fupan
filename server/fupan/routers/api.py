@@ -106,6 +106,20 @@ def api_sentiment(days: int = Query(30, ge=1, le=120)) -> dict[str, Any]:
     return {"list": series}
 
 
+@router.get("/sectors")
+def api_sectors(limit: int = Query(24, ge=1, le=60)) -> dict[str, Any]:
+    """Ranked sector dossiers derived from the cached limit-up pool.
+
+    Reads only the in-memory/SQLite snapshot, so opening the sector board never
+    triggers a market rebuild.
+    """
+    snap = store.cached_snapshot() or {}
+    rows = (snap.get("pools") or {}).get("up") or []
+    return {
+        "date": (snap.get("stats") or {}).get("date"),
+        "list": analysis.build_sector_detail(rows, limit),
+    }
+
 
 @router.post("/refresh")
 def api_refresh() -> dict[str, Any]:

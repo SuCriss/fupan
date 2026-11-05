@@ -8,15 +8,18 @@ import {
   getWatch,
   removeWatch,
   getSentiment,
+  getSectors,
 } from './lib/api'
 import { fmtAmt, pct, cls, badgeCls } from './lib/format'
 import { DetailDrawer } from './components/DetailDrawer'
 import StockSearch from './components/StockSearch'
 import { SentimentPanel } from './components/Sentiment'
+import { SectorGrid, SectorDetail } from './components/Sector'
 
 const TABS = [
   { key: 'watch', label: '自选' },
   { key: 'leaders', label: '龙头榜' },
+  { key: 'sectors', label: '板块' },
   { key: 'up', label: '涨停池' },
   { key: 'lb', label: '连板池' },
   { key: 'zb', label: '炸板池' },
@@ -503,6 +506,8 @@ export default function App() {
   const [dateInput, setDateInput] = useState('')
   const [dates, setDates] = useState([])
   const [trend, setTrend] = useState([])
+  const [sectors, setSectors] = useState(null)
+  const [sectorSel, setSectorSel] = useState('')
   // Auto-refresh during trading hours, persisted across visits.
   const [autoOn, setAutoOn] = useState(() => readPref('fupan_auto') === '1')
   const [autoMin, setAutoMin] = useState(() => Number(readPref('fupan_auto_min')) || 10)
@@ -601,6 +606,14 @@ export default function App() {
       .then((r) => setDates((r.dates || []).map((x) => x.date)))
       .catch(() => {})
   }, [])
+
+  // Sector dossiers are derived from the snapshot, so refresh them with it.
+  useEffect(() => {
+    if (!data) return
+    getSectors(24)
+      .then((r) => setSectors(r.list || []))
+      .catch(() => setSectors([]))
+  }, [data])
 
   // Per-date <title> so each archive day has its own search snippet.
   useEffect(() => {
@@ -857,6 +870,16 @@ export default function App() {
           <div className="empty">加载中…</div>
         ) : tab === 'leaders' ? (
           <LeaderCards list={data.leaders} onOpen={openDetail} />
+        ) : tab === 'sectors' ? (
+          sectorSel ? (
+            <SectorDetail
+              sector={(sectors || []).find((s) => s.name === sectorSel)}
+              onBack={() => setSectorSel('')}
+              onOpen={openDetail}
+            />
+          ) : (
+            <SectorGrid sectors={sectors} onSelect={setSectorSel} />
+          )
         ) : tab === 'ladder' ? (
           <Ladder ladder={data.ladder} onOpen={openDetail} />
         ) : tab === 'hot' ? (

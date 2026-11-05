@@ -43,6 +43,10 @@ export const getDates = () => request('/api/dates')
 export const getSentiment = (days = 60) =>
   request(`/api/sentiment?days=${encodeURIComponent(days)}`)
 
+/** Heat-ranked sector dossiers derived from the cached limit-up pool. */
+export const getSectors = (limit = 24) =>
+  request(`/api/sectors?limit=${encodeURIComponent(limit)}`)
+
 export const getWatch = (codes = '') =>
   request(`/api/watch${codes ? `?codes=${encodeURIComponent(codes)}` : ''}`)
 

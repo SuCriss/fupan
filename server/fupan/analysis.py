@@ -135,6 +135,115 @@ def build_sectors(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ]
 
 
+def build_sector_detail(rows: list[dict[str, Any]], limit: int = 24) -> list[dict[str, Any]]:
+    """Aggregate the limit-up pool into ranked sector dossiers.
+
+    Membership follows :func:`build_sectors`: a stock counts toward *every*
+    concept it carries, so a sector's 涨停家数 always equals what the matching
+    concept filter shows. Each dossier carries the leaders, the board ladder and
+    the member rows so the UI needs a single request.
+    """
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for r in rows:
+        themes = [t for t in (r.get("concepts") or [])[:8] if t]
+        if not themes and r.get("industry"):
+            themes = [r["industry"]]
+        for t in themes:
+            groups.setdefault(t, []).append(r)
+
+    out: list[dict[str, Any]] = []
+    for name, members in groups.items():
+        if len(members) < 2:
+            continue
+
+        # A limit-up is at least a first board; normalise the occasional 0 so a
+        # sector cannot show "首板" and "1板" as two different rungs.
+        def boards_of(m: dict[str, Any]) -> int:
+            return max(1, int(m.get("boards") or 0))
+
+        boards = [boards_of(m) for m in members]
+        max_board = max(boards)
+        lianban = sum(1 for b in boards if b >= 2)
+        chgs = [float(m.get("chg") or 0) for m in members]
+        avg_chg = round(sum(chgs) / len(chgs), 2) if chgs else 0.0
+        seal_amt = sum(float(m.get("sealAmt") or 0) for m in members)
+
+        def score_of(m: dict[str, Any]) -> float:
+            sc = m.get("score") or {}
+            return float(sc.get("total") or 0) if isinstance(sc, dict) else 0.0
+
+        ordered = sorted(
+            members, key=lambda m: (-boards_of(m), -score_of(m))
+        )
+
+        # Heat blends breadth, market height, follow-through and momentum, so a
+        # one-stock fluke cannot outrank a broad, tall sector.
+        heat = round(
+            min(40.0, len(members) * 4.0)
+            + min(32.0, max_board * 8.0)
+            + min(15.0, lianban * 3.0)
+            + min(13.0, max(0.0, avg_chg) * 2.0),
+            1,
+        )
+
+        ladder: dict[int, list[dict[str, Any]]] = {}
+        for m in ordered:
+            ladder.setdefault(boards_of(m), []).append(m)
+
+        out.append(
+            {
+                "name": name,
+                "n": len(members),
+                "maxBoard": max_board,
+                "lianban": lianban,
+                "avgChg": avg_chg,
+                "sealAmt": seal_amt,
+                "heat": heat,
+                "leaders": [
+                    {
+                        "code": m.get("code"),
+                        "name": m.get("name"),
+                        "boards": boards_of(m),
+                        "chg": m.get("chg"),
+                        "score": score_of(m),
+                    }
+                    for m in ordered[:3]
+                ],
+                "ladder": [
+                    {
+                        "board": b,
+                        "label": "首板" if b <= 1 else f"{b}板",
+                        "list": [
+                            {
+                                "code": m.get("code"),
+                                "name": m.get("name"),
+                                "chg": m.get("chg"),
+                                "score": score_of(m),
+                            }
+                            for m in ladder[b]
+                        ],
+                    }
+                    for b in sorted(ladder, reverse=True)
+                ],
+                "members": [
+                    {
+                        "code": m.get("code"),
+                        "name": m.get("name"),
+                        "boards": boards_of(m),
+                        "chg": m.get("chg"),
+                        "sealAmt": m.get("sealAmt"),
+                        "boardType": m.get("boardType") or "",
+                        "score": score_of(m),
+                    }
+                    for m in ordered
+                ],
+            }
+        )
+
+    out.sort(key=lambda s: (-s["heat"], -s["n"], -s["maxBoard"]))
+    return out[:limit]
+
+
 # ---------------------------------------------------------------------------
 # Scoring
 # ---------------------------------------------------------------------------
