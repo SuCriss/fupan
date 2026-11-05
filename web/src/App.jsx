@@ -527,6 +527,10 @@ export default function App() {
   const busyRef = useRef(false)
   // Newest request that arrived while one was in flight (coalesced, not queued).
   const pendingRef = useRef(null)
+  // Live view of the selected day, so a slow response cannot compare against a
+  // stale closure value.
+  const dateRef = useRef(date)
+  dateRef.current = date
 
   const loadTrend = useCallback(() => {
     getSentiment(60)
@@ -573,7 +577,11 @@ export default function App() {
       const j = await getReview(targetDate)
       if (j.error) throw new Error(j.error)
       setData(j)
-      setDateInput(j.stats?.date || '')
+      // Only mirror the response into the picker when it still matches the
+      // user's selection; a slower response must not drag it back to an older day.
+      if ((targetDate || '') === (dateRef.current || '')) {
+        setDateInput(j.stats?.date || '')
+      }
       setDataTs(Number(j.ts) || Date.now())
       setStampBusy('')
       if (force) loadTrend()
@@ -600,6 +608,7 @@ export default function App() {
   const selectDate = useCallback((next) => {
     const d = next || ''
     setDate(d)
+    setDateInput(d) // reflect the choice immediately, before the fetch lands
     try {
       const url = new URL(window.location.href)
       if (d) url.searchParams.set('date', d)
