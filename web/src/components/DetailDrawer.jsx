@@ -22,6 +22,11 @@ function fmtMoney(v) {
   return `${sign}${abs.toFixed(0)}`
 }
 
+/** Same scale, but without the leading plus (turnover amounts are unsigned). */
+function fmtMoneyAbs(v) {
+  return fmtMoney(v).replace(/^\+/, '')
+}
+
 export function DetailDrawer({ code, onClose, onConcept }) {
   const [data, setData] = useState(null)
   const [error, setError] = useState('')
@@ -393,8 +398,8 @@ export function DetailDrawer({ code, onClose, onConcept }) {
                         </div>
                         {r.reason && <div className="lhb-reason">{r.reason}</div>}
                         <div className="lhb-nums">
-                          <span>买 {fmtMoney(r.buy)}</span>
-                          <span>卖 {fmtMoney(r.sell)}</span>
+                          <span>买 {fmtMoneyAbs(r.buy)}</span>
+                          <span>卖 {fmtMoneyAbs(r.sell)}</span>
                           <span className={cls(r.net)}>净 {fmtMoney(r.net)}</span>
                         </div>
                       </div>

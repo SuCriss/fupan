@@ -69,12 +69,19 @@ def _loads(raw: str | None) -> Any:
 def money_flow(code: str, days: int = 10) -> dict[str, Any] | None:
     """Today's order-size breakdown plus the recent net-flow history."""
     sym = fetch.to_symbol(code)
-    try:
-        today_doc = _loads(_get_text(_MF_TODAY.format(sym=sym), SINA_REFERER))
-        hist_doc = _loads(_get_text(_MF_HIST.format(sym=sym, n=days), SINA_REFERER))
-    except Exception as exc:  # a failed side panel must not break the drawer
-        log.debug("money flow unavailable for %s: %s", code, exc)
-        return None
+    today_doc = None
+    hist_doc = None
+    # Sina occasionally drops the first call on a cold connection; one retry
+    # keeps the panel from silently vanishing from the drawer.
+    for attempt in range(2):
+        try:
+            today_doc = _loads(_get_text(_MF_TODAY.format(sym=sym), SINA_REFERER))
+            hist_doc = _loads(_get_text(_MF_HIST.format(sym=sym, n=days), SINA_REFERER))
+            if today_doc or hist_doc:
+                break
+        except Exception as exc:  # a failed side panel must not break the drawer
+            log.debug("money flow attempt %s failed for %s: %s", attempt + 1, code, exc)
+            today_doc, hist_doc = None, None
 
     today = None
     if isinstance(today_doc, dict) and today_doc.get("name"):
