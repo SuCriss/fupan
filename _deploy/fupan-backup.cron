@@ -1,0 +1,6 @@
+# Daily hot backup of the fupan database. Runs as root because the database and
+# its directory are root-owned; the script itself drops nothing else.
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+30 2 * * * root /opt/fupan/_deploy/backup_db.sh >> /var/log/fupan-backup.log 2>&1
