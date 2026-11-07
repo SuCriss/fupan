@@ -255,7 +255,9 @@ def _fetch_kline_remote(code: str, days: int) -> list[dict[str, Any]]:
     sym = to_symbol(code)
     secid = _em_secid(code)
 
-    sources: list[tuple[str, str, str, Any]] = [
+    # Forward-adjusted sources first: every indicator downstream assumes qfq, so
+    # an unadjusted series must never win just because it answered last time.
+    adjusted: list[tuple[str, str, str, Any]] = [
         (
             "tencent",
             f"https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={sym},day,,,{days},qfq",
@@ -277,6 +279,8 @@ def _fetch_kline_remote(code: str, days: int) -> list[dict[str, Any]]:
             "https://quote.eastmoney.com/",
             _parse_eastmoney,
         ),
+    ]
+    unadjusted: list[tuple[str, str, str, Any]] = [
         (
             "sina",
             "https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/"
@@ -286,10 +290,12 @@ def _fetch_kline_remote(code: str, days: int) -> list[dict[str, Any]]:
         ),
     ]
 
-    # Prefer whichever source last worked, without losing the rest as fallbacks.
+    # Within the adjusted group, prefer whichever source last worked; the
+    # unadjusted fallback is always tried last.
     hint = config.kline_host_hint()
     if hint:
-        sources.sort(key=lambda s: 0 if s[0] == hint else 1)
+        adjusted.sort(key=lambda s: 0 if s[0] == hint else 1)
+    sources = adjusted + unadjusted
 
     for name, url, referer, parse in sources:
         try:
