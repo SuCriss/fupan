@@ -11,3 +11,6 @@ __pycache__/
 
 # e2e screenshot artifacts
 web/*.png
+
+# runtime database backups (contain full snapshot history)
+backup/
