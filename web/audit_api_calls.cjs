@@ -1,4 +1,4 @@
-﻿const { chromium } = require('playwright-core')
+const { chromium } = require('playwright-core')
 
 const EXE = process.env.PW_CHROME
 const SITE = 'https://fupan.chrisite.eu.cc/'
@@ -26,7 +26,7 @@ const SITE = 'https://fupan.chrisite.eu.cc/'
     return { total, counts }
   }
 
-  await page.goto(SITE, { waitUntil: 'networkidle', timeout: 120000 })
+  await page.goto(SITE, { waitUntil: 'domcontentloaded', timeout: 120000 })
   await page.waitForSelector('.kpis .kpi', { timeout: 120000 })
   const load = report('首次加载')
 

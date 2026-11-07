@@ -20,7 +20,7 @@ const check = (name, ok, extra = '') => {
   const errors = []
   page.on('pageerror', (e) => errors.push(String(e)))
 
-  await page.goto(URL, { waitUntil: 'networkidle', timeout: 90000 })
+  await page.goto(URL, { waitUntil: 'domcontentloaded', timeout: 90000 })
   await page.waitForSelector('.cards .card', { timeout: 90000 })
   check('龙头卡片渲染', (await page.locator('.cards .card').count()) > 0)
 

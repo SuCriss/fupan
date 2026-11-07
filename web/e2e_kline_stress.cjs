@@ -20,7 +20,7 @@ const check = (name, ok, extra = '') => {
   page.on('pageerror', (e) => errors.push('pageerror: ' + e.message))
   page.on('console', (m) => { if (m.type() === 'error') errors.push('console: ' + m.text().slice(0, 200)) })
 
-  await page.goto(URL, { waitUntil: 'networkidle', timeout: 120000 })
+  await page.goto(URL, { waitUntil: 'domcontentloaded', timeout: 120000 })
   await page.waitForSelector('.cards .card', { timeout: 120000 })
   await page.locator('.cards .card').first().click()
   await page.waitForSelector('.kl-svg', { timeout: 60000 })

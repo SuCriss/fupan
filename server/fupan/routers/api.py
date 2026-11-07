@@ -6,7 +6,7 @@ import sqlite3
 import time
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Response
 
 from .. import analysis, concepts, config as cfg, detail, fetch, indicators, llm, sentiment, store
 
@@ -22,8 +22,64 @@ def _with_sentiment(doc: dict[str, Any]) -> dict[str, Any]:
 
 
 @router.get("/health")
-def api_health() -> dict[str, Any]:
-    return {"ok": True, "db": str(cfg.DB_PATH)}
+def api_health(response: Response) -> dict[str, Any]:
+    """Liveness + readiness in one call, for an external uptime monitor.
+
+    A bare ``{"ok": true}`` proves only that the process answers, which stays true
+    even when the database is locked or the snapshot is hours stale. This reports
+    the facts a monitor needs and returns 503 when any of them is unhealthy, so the
+    probe fails instead of silently staying green.
+    """
+    now = time.time()
+    issues: list[str] = []
+
+    # The database must be readable, not merely present.
+    try:
+        with store._conn() as c:
+            c.execute("SELECT 1").fetchone()
+        db_ok = True
+    except Exception as exc:  # a locked/corrupt DB is exactly what we must catch
+        db_ok = False
+        issues.append(f"db_unreadable: {type(exc).__name__}")
+
+    # How old is the data actually being served?
+    try:
+        snap = store.cached_snapshot()
+    except Exception:
+        snap = None
+    age = store.snapshot_age(snap) if snap else None
+    if snap is None:
+        issues.append("no_snapshot")
+    elif age is not None and age > cfg.SNAPSHOT_TTL * 4:
+        issues.append(f"snapshot_stale: {int(age)}s")
+
+    # A build that never finishes blocks every later refresh.
+    st = store.background_state()
+    build_secs = 0.0
+    if st["running"] and st["last_started"]:
+        build_secs = round(now - st["last_started"], 1)
+        if build_secs > 1200:
+            issues.append(f"build_stuck: {int(build_secs)}s")
+    if st.get("error"):
+        issues.append("last_build_failed")
+
+    ok = db_ok and snap is not None and not any(
+        i.startswith(("snapshot_stale", "build_stuck")) for i in issues
+    )
+    if not ok:
+        response.status_code = 503
+
+    return {
+        "ok": ok,
+        "ts": fetch.now_ts(),
+        "db": db_ok,
+        "snapshotAgeSec": None if age is None else round(age, 1),
+        "snapshotDate": ((snap or {}).get("stats") or {}).get("date"),
+        "buildRunning": st["running"],
+        "buildSeconds": build_secs or None,
+        "marketStatus": _market_status(),
+        "issues": issues,
+    }
 
 
 @router.get("/all")

@@ -1,0 +1,6 @@
+# Local liveness/readiness probe for fupan. Runs every 5 minutes; a failure is
+# only logged after 3 consecutive misses to avoid flapping on a brief reload.
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+*/5 * * * * root /opt/fupan/_deploy/uptime_probe.sh

@@ -51,7 +51,7 @@ async function layoutAudit(page, label) {
   ]) {
     const ctx = await browser.newContext({ viewport: { width: vp.width, height: vp.height }, locale: 'zh-CN' })
     const page = await ctx.newPage()
-    await page.goto(URL, { waitUntil: 'networkidle', timeout: 90000 })
+    await page.goto(URL, { waitUntil: 'domcontentloaded', timeout: 90000 })
     await page.waitForSelector('.cards .card', { timeout: 90000 })
     await page.locator('.tabs button', { hasText: '板块' }).first().click()
     await page.waitForSelector('.sec-grid .sec-card', { timeout: 60000 })

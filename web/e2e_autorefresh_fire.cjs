@@ -32,7 +32,7 @@ async function status() {
     localStorage.setItem('fupan_auto', '1')
     localStorage.setItem('fupan_auto_min', '1')
   })
-  await page.reload({ waitUntil: 'networkidle', timeout: 90000 })
+  await page.reload({ waitUntil: 'domcontentloaded', timeout: 90000 })
   await page.waitForSelector('.autoref.on', { timeout: 30000 })
   const hint = (await page.locator('.ar-hint').textContent()).trim()
   check('1 分钟间隔生效', /下次 \d{2}:\d{2}/.test(hint), `hint="${hint}"`)

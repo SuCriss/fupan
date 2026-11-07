@@ -25,7 +25,7 @@ function check(name, ok, extra = '') {
   const errors = []
   page.on('pageerror', (e) => errors.push(String(e)))
 
-  await page.goto(URL, { waitUntil: 'networkidle', timeout: 90000 })
+  await page.goto(URL, { waitUntil: 'domcontentloaded', timeout: 90000 })
 
   // Data must have loaded (KPI grid appears once /api/all resolves).
   await page.waitForSelector('.kpis .kpi', { timeout: 90000 })
@@ -69,7 +69,7 @@ function check(name, ok, extra = '') {
   check('间隔可改并持久化', lsMin === '15', `fupan_auto_min=${lsMin}`)
 
   // Reload keeps the preference.
-  await page.reload({ waitUntil: 'networkidle', timeout: 90000 })
+  await page.reload({ waitUntil: 'domcontentloaded', timeout: 90000 })
   await page.waitForSelector('.autoref', { timeout: 30000 })
   const on2 = await page.locator('.autoref').evaluate((el) => el.classList.contains('on'))
   const sel2 = await page.locator('.ar-sel').inputValue()
