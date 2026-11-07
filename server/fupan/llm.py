@@ -152,7 +152,11 @@ def get_cached(code: str, trade_date: str) -> str | None:
                 (code, trade_date),
             ).fetchone()
         return row["summary"] if row else None
-    except Exception:
+    except Exception as exc:
+        # A cache miss returns None quietly; a *failed read* means the database
+        # is unavailable, which would otherwise look identical to "not generated".
+        log.warning("attribution cache read failed for %s@%s: %s: %s",
+                    code, trade_date, type(exc).__name__, exc)
         return None
 
 

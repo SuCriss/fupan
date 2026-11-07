@@ -78,9 +78,16 @@ def load(
 
     fetched_day = datetime.fromtimestamp(meta["fetched_at"], cfg.CN_TZ).strftime("%Y-%m-%d")
     last_bar = rows[-1]["bar_date"]
-    # Same-day write that already saw today's bar, or a write after today's
-    # close (the newest bar is today or later). Otherwise refetch.
-    fresh = fetched_day == today and last_bar >= today
+    # Freshness: the cache must already contain the newest bar that could exist.
+    #  - weekday: written today and it saw today's bar, else refetch.
+    #  - weekend: no new bar can appear, so a cache whose fetch day is not older
+    #    than its newest bar is final. Without this branch every weekend request
+    #    refetches, which is both wasteful and noisy when the source is down.
+    is_weekend = cfg.cn_now().weekday() >= 5
+    if is_weekend:
+        fresh = fetched_day >= last_bar
+    else:
+        fresh = fetched_day == today and last_bar >= today
     if not fresh:
         return None
 

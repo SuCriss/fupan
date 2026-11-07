@@ -7,11 +7,14 @@ in-process cache handles repeated opens of the same stock.
 
 from __future__ import annotations
 
+import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from . import analysis, concepts, extra, fetch, indicators, store
+
+log = logging.getLogger(__name__)
 
 # code -> (built_at, payload); the drawer is re-openable within a session.
 _CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
@@ -27,7 +30,10 @@ def _snapshot_row(code: str) -> dict[str, Any] | None:
     """Find this stock's entry in the most recent snapshot without rebuilding it."""
     try:
         snap = store.cached_snapshot()
-    except Exception:
+    except Exception as exc:
+        # A missing snapshot is normal (returns None); raising here means the
+        # store itself failed, which is worth surfacing.
+        log.warning("snapshot lookup failed for %s: %s: %s", code, type(exc).__name__, exc)
         return None
     if not snap:
         return None

@@ -167,56 +167,145 @@ def fetch_minute(code: str) -> list[dict[str, Any]]:
         return []
 
 
-def _fetch_kline_remote(code: str, days: int) -> list[dict[str, Any]]:
-    """Network-only daily-bar fetch, trying each known host.
+def _em_secid(code: str) -> str:
+    """Eastmoney secid: 1.<code> for Shanghai, 0.<code> for Shenzhen/Beijing."""
+    sym = to_symbol(code)
+    return f"{'1' if sym.startswith('sh') else '0'}.{sym[2:]}"
 
-    Host availability differs by network: some egress points get HTTP 501 from
-    one Tencent host while the sibling host answers normally. The first host that
-    succeeds is remembered so later calls skip the dead one.
+
+def _parse_tencent(text: str, sym: str) -> list[dict[str, Any]]:
+    j = json.loads(text)
+    if j.get("code") != 0:
+        return []
+    block = (j.get("data") or {}).get(sym) or {}
+    return _rows_from(bars=block.get("qfqday") or block.get("day") or [], off=0)
+
+
+def _parse_eastmoney(text: str) -> list[dict[str, Any]]:
+    """Eastmoney kline rows are 'date,open,close,high,low,volume,amount,...'."""
+    j = json.loads(text)
+    block = (j.get("data") or {})
+    out: list[dict[str, Any]] = []
+    for line in block.get("klines") or []:
+        f = str(line).split(",")
+        if len(f) < 6:
+            continue
+        try:
+            out.append({
+                "date": f[0],
+                "open": float(f[1]),
+                "close": float(f[2]),
+                "high": float(f[3]),
+                "low": float(f[4]),
+                "volume": float(f[5]),
+            })
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def _parse_sina(text: str) -> list[dict[str, Any]]:
+    """Sina rows are day/open/high/low/close/volume objects (unadjusted)."""
+    rows = json.loads(text)
+    out: list[dict[str, Any]] = []
+    for r in rows if isinstance(rows, list) else []:
+        try:
+            out.append({
+                "date": r["day"],
+                "open": float(r["open"]),
+                "close": float(r["close"]),
+                "high": float(r["high"]),
+                "low": float(r["low"]),
+                "volume": float(r["volume"]),
+            })
+        except (KeyError, TypeError, ValueError):
+            continue
+    return out
+
+
+def _rows_from(bars: list[Any], off: int = 0) -> list[dict[str, Any]]:
+    """Tencent-style positional rows: date,open,close,high,low,volume."""
+    out: list[dict[str, Any]] = []
+    for b in bars:
+        if not isinstance(b, list) or len(b) < 6:
+            continue
+        try:
+            out.append({
+                "date": b[0],
+                "open": float(b[1]),
+                "close": float(b[2]),
+                "high": float(b[3]),
+                "low": float(b[4]),
+                "volume": float(b[5]),
+            })
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def _fetch_kline_remote(code: str, days: int) -> list[dict[str, Any]]:
+    """Network-only daily-bar fetch with source failover.
+
+    Tencent is tried first because it returns forward-adjusted (qfq) bars, which
+    every indicator downstream assumes. It started answering HTTP 501 with an
+    anti-bot JS challenge from this host, so Eastmoney (also qfq) is the fallback.
+    Sina is last: its endpoint is unadjusted, so a split would distort MA/MACD —
+    it is only used when both adjusted sources are down, and that is logged.
     """
     sym = to_symbol(code)
-    bases = [
-        "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get",
-        "https://ifzq.gtimg.cn/appstock/app/fqkline/get",
-    ]
-    # Prefer the host that last worked.
-    good = config.kline_host_hint()
-    if good in bases:
-        bases.remove(good)
-        bases.insert(0, good)
+    secid = _em_secid(code)
 
-    for base in bases:
-        url = f"{base}?param={sym},day,,,{days},qfq"
+    sources: list[tuple[str, str, str, Any]] = [
+        (
+            "tencent",
+            f"https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={sym},day,,,{days},qfq",
+            "https://gu.qq.com/",
+            lambda t: _parse_tencent(t, sym),
+        ),
+        (
+            "tencent-alt",
+            f"https://ifzq.gtimg.cn/appstock/app/fqkline/get?param={sym},day,,,{days},qfq",
+            "https://gu.qq.com/",
+            lambda t: _parse_tencent(t, sym),
+        ),
+        (
+            "eastmoney",
+            "https://push2his.eastmoney.com/api/qt/stock/kline/get"
+            f"?secid={secid}&fields1=f1,f2,f3,f4,f5"
+            "&fields2=f51,f52,f53,f54,f55,f56&klt=101&fqt=1&end=20500101"
+            f"&lmt={days}",
+            "https://quote.eastmoney.com/",
+            _parse_eastmoney,
+        ),
+        (
+            "sina",
+            "https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/"
+            f"CN_MarketData.getKLineData?symbol={sym}&scale=240&ma=no&datalen={days}",
+            "https://finance.sina.com.cn/",
+            _parse_sina,
+        ),
+    ]
+
+    # Prefer whichever source last worked, without losing the rest as fallbacks.
+    hint = config.kline_host_hint()
+    if hint:
+        sources.sort(key=lambda s: 0 if s[0] == hint else 1)
+
+    for name, url, referer, parse in sources:
         try:
-            j = json.loads(_get_text(url, "https://gu.qq.com/"))
+            out = parse(_get_text(url, referer))
         except Exception as exc:
-            log.debug("kline host %s failed for %s: %s", base, code, exc)
+            log.debug("kline source %s failed for %s: %s", name, code, exc)
             continue
-        if j.get("code") != 0:
-            continue
-        block = (j.get("data") or {}).get(sym) or {}
-        bars = block.get("qfqday") or block.get("day") or []
-        out = []
-        for b in bars:
-            if len(b) < 6:
-                continue
-            try:
-                out.append(
-                    {
-                        "date": b[0],
-                        "open": float(b[1]),
-                        "close": float(b[2]),
-                        "high": float(b[3]),
-                        "low": float(b[4]),
-                        "volume": float(b[5]),
-                    }
-                )
-            except (TypeError, ValueError):
-                continue
         if out:
-            config.set_kline_host_hint(base)
+            if name == "sina":
+                log.warning(
+                    "kline for %s served by sina (unadjusted): MA/MACD may be "
+                    "distorted around splits", code,
+                )
+            config.set_kline_host_hint(name)
             return out
-    log.debug("kline unavailable for %s", code)
+    log.warning("kline unavailable for %s from every source", code)
     return []
 
 
