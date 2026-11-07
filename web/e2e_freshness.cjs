@@ -1,4 +1,5 @@
 const { chromium } = require('playwright-core')
+const { gotoWithRetry } = require('./e2e_util.cjs')
 
 const EXE = process.env.PW_CHROME
 const URL = 'https://fupan.chrisite.eu.cc/'
@@ -20,7 +21,7 @@ const check = (name, ok, extra = '') => {
   const errors = []
   page.on('pageerror', (e) => errors.push(String(e)))
 
-  await page.goto(URL, { waitUntil: 'domcontentloaded', timeout: 120000 })
+  await gotoWithRetry(page, URL, { timeout: 120000 })
   await page.waitForSelector('.kpis .kpi', { timeout: 120000 })
 
   const stamp = page.locator('.stamp')
@@ -56,7 +57,7 @@ const check = (name, ok, extra = '') => {
 
   // Reload to abandon the intercepted flow, then prove the relative age ticks.
   await page.unroute('**/api/refresh')
-  await page.goto(URL, { waitUntil: 'domcontentloaded', timeout: 120000 })
+  await gotoWithRetry(page, URL, { timeout: 120000 })
   await page.waitForSelector('.kpis .kpi', { timeout: 120000 })
   const before = (await page.locator('.stamp').textContent()).replace(/\s+/g, ' ').trim()
   log(`  等待 70s 观察相对时间自增… (起始: ${before})`)

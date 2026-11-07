@@ -1,4 +1,5 @@
 const { chromium } = require('playwright-core')
+const { gotoWithRetry } = require('./e2e_util.cjs')
 
 const EXE = process.env.PW_CHROME
 const URL = 'https://fupan.chrisite.eu.cc/'
@@ -20,7 +21,7 @@ const check = (name, ok, extra = '') => {
   const errors = []
   page.on('pageerror', (e) => errors.push(String(e)))
 
-  await page.goto(URL, { waitUntil: 'domcontentloaded', timeout: 90000 })
+  await gotoWithRetry(page, URL, { timeout: 90000 })
   await page.waitForSelector('.cards .card', { timeout: 90000 })
   check('龙头卡片渲染', (await page.locator('.cards .card').count()) > 0)
 

@@ -1,4 +1,5 @@
 const { chromium } = require('playwright-core')
+const { gotoWithRetry, reloadWithRetry } = require('./e2e_util.cjs')
 
 const EXE = process.env.PW_CHROME
 const ORIGIN = 'https://fupan.chrisite.eu.cc'
@@ -27,12 +28,12 @@ async function status() {
   const page = await ctx.newPage()
 
   // Seed a 1-minute interval (the UI offers 5/10/15/30; state honours any number).
-  await page.goto(`${ORIGIN}/`, { waitUntil: 'domcontentloaded', timeout: 90000 })
+  await gotoWithRetry(page, `${ORIGIN}/`, { timeout: 90000 })
   await page.evaluate(() => {
     localStorage.setItem('fupan_auto', '1')
     localStorage.setItem('fupan_auto_min', '1')
   })
-  await page.reload({ waitUntil: 'domcontentloaded', timeout: 90000 })
+  await reloadWithRetry(page, { timeout: 90000 })
   await page.waitForSelector('.autoref.on', { timeout: 30000 })
   const hint = (await page.locator('.ar-hint').textContent()).trim()
   check('1 分钟间隔生效', /下次 \d{2}:\d{2}/.test(hint), `hint="${hint}"`)

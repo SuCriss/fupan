@@ -1,4 +1,5 @@
 const { chromium } = require('playwright-core')
+const { gotoWithRetry } = require('./e2e_util.cjs')
 
 const EXE = process.env.PW_CHROME
 const URL = 'https://fupan.chrisite.eu.cc/'
@@ -11,7 +12,7 @@ const URL = 'https://fupan.chrisite.eu.cc/'
   const ctx = await browser.newContext({ viewport: { width: 1400, height: 1000 }, locale: 'zh-CN' })
   const page = await ctx.newPage()
 
-  await page.goto(URL, { waitUntil: 'domcontentloaded', timeout: 90000 })
+  await gotoWithRetry(page, URL, { timeout: 90000 })
   await page.waitForSelector('.cards .card', { timeout: 90000 })
   await page.locator('.cards .card').first().click()
   await page.waitForSelector('.drawer .sec-t', { timeout: 60000 })

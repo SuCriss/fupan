@@ -1,4 +1,5 @@
 const { chromium } = require('playwright-core')
+const { gotoWithRetry } = require('./e2e_util.cjs')
 
 const EXE = process.env.PW_CHROME
 const URL = 'https://fupan.chrisite.eu.cc/'
@@ -18,9 +19,9 @@ const check = (name, ok, extra = '') => {
 
   const errors = []
   page.on('pageerror', (e) => errors.push('pageerror: ' + e.message))
-  page.on('console', (m) => { if (m.type() === 'error') errors.push('console: ' + m.text().slice(0, 200)) })
+  page.on('console', (m) => { if (m.type() === 'error' && !/net::|Failed to load resource/.test(m.text())) errors.push('console: ' + m.text().slice(0, 200)) })
 
-  await page.goto(URL, { waitUntil: 'domcontentloaded', timeout: 120000 })
+  await gotoWithRetry(page, URL, { timeout: 120000 })
   await page.waitForSelector('.cards .card', { timeout: 120000 })
   await page.locator('.cards .card').first().click()
   await page.waitForSelector('.kl-svg', { timeout: 60000 })

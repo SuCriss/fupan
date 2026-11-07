@@ -306,15 +306,19 @@ export default function App() {
       + ` · 行情 ${market?.status || '--'}`
     : '尚未加载数据'
 
+  // `/api/market` has not answered yet on first paint. Saying "非交易时段" then
+  // would be a guess, and a wrong one during a live session.
   const autoHint = !autoOn
     ? '已关闭'
     : date
       ? '归档只读'
-      : !inSession
-        ? `${marketStatus || '非交易时段'} · 暂停`
-        : nextAt
-          ? `下次 ${new Date(nextAt).toLocaleTimeString('zh-CN', { hour12: false }).slice(0, 5)}`
-          : '等待行情状态…'
+      : !marketStatus
+        ? '等待行情状态…'
+        : !inSession
+          ? `${marketStatus} · 暂停`
+          : nextAt
+            ? `下次 ${new Date(nextAt).toLocaleTimeString('zh-CN', { hour12: false }).slice(0, 5)}`
+            : '等待行情状态…'
 
   const toggleNotify = async () => {
     try {
