@@ -58,12 +58,12 @@ for i in $(seq 1 90); do
   body=$(curl -s -m 8 "$HEALTH" 2>/dev/null || true)
   if printf '%s' "$body" | grep -q '"ok":true'; then
     if ! printf '%s' "$body" | grep -q '"buildRunning":true'; then
-      echo "就绪 (${i}0s 内): $body"
+      echo "就绪 ($((i * 2))s): $body"
       printf '\n\033[32m部署完成: %s\033[0m\n' "$after"
       exit 0
     fi
   fi
-  [ $((i % 15)) -eq 0 ] && echo "  …预热构建中 (${i}0s)"
+  [ $((i % 15)) -eq 0 ] && echo "  …预热构建中 ($((i * 2))s)"
 done
 
 fail "服务未在 180s 内就绪；查看: journalctl -u $SERVICE -n 50"
