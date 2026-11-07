@@ -41,8 +41,8 @@ export function WatchList({ onOpen }) {
       <table>
         <thead>
           <tr>
-            <th className="l">代码</th><th className="l">名称</th>
-            <th>现价</th><th>涨幅</th><th>成交额</th><th>操作</th>
+            <th scope="col" className="l">代码</th><th scope="col" className="l">名称</th>
+            <th scope="col">现价</th><th scope="col">涨幅</th><th scope="col">成交额</th><th scope="col">操作</th>
           </tr>
         </thead>
         <tbody>

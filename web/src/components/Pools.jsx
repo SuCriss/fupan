@@ -97,6 +97,7 @@ export function DataTable({ kind, rows, query, onOpen }) {
             {cols.map((c) => (
               <th
                 key={c.k}
+                scope="col"
                 className={c.l ? 'l' : ''}
                 onClick={() =>
                   setSort((cur) => ({ key: c.k, dir: cur.key === c.k ? -cur.dir : -1 }))
@@ -249,8 +250,8 @@ export function Drawdown({ rows, onOpen }) {
       <table>
         <thead>
           <tr>
-            <th className="l">代码</th><th className="l">名称</th>
-            <th>现价</th><th>今日涨幅</th><th>盘中最高</th><th>回撤幅度</th>
+            <th scope="col" className="l">代码</th><th scope="col" className="l">名称</th>
+            <th scope="col">现价</th><th scope="col">今日涨幅</th><th scope="col">盘中最高</th><th scope="col">回撤幅度</th>
           </tr>
         </thead>
         <tbody>

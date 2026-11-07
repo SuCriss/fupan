@@ -1,0 +1,20 @@
+# Log rotation for the fupan cron jobs.
+#
+# backup_db.sh and uptime_probe.sh append to these files once they start
+# logging, and nothing rotates them. Bound them now so a long-running failure
+# loop cannot fill the disk.
+#
+# `su root root` is required because /var/log is group-writable by syslog, which
+# logrotate treats as insecure and refuses to touch without an explicit owner.
+/var/log/fupan-backup.log
+/var/log/fupan-probe.log {
+    su root root
+    weekly
+    rotate 8
+    maxsize 5M
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+}

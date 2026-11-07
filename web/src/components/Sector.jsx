@@ -107,8 +107,8 @@ export function SectorDetail({ sector, onBack, onOpen }) {
         <table>
           <thead>
             <tr>
-              <th className="l">代码</th><th className="l">名称</th>
-              <th>连板</th><th>涨幅</th><th>封单</th><th>评分</th>
+              <th scope="col" className="l">代码</th><th scope="col" className="l">名称</th>
+              <th scope="col">连板</th><th scope="col">涨幅</th><th scope="col">封单</th><th scope="col">评分</th>
             </tr>
           </thead>
           <tbody>

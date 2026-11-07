@@ -165,11 +165,16 @@ export function DetailDrawer({ code, onClose, onConcept }) {
 
   return (
     <>
-      <div className="mask" onClick={onClose} />
-      <aside className="drawer">
+      <div className="mask" onClick={onClose} aria-hidden="true" />
+      <aside
+        className="drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="drawer-title"
+      >
         <div className="drawer-head">
           <div>
-            <h2>{q ? `${q.name}  ${q.code}` : code}</h2>
+            <h2 id="drawer-title">{q ? `${q.name}  ${q.code}` : code}</h2>
             <p>
               {q ? (
                 <>
@@ -190,7 +195,7 @@ export function DetailDrawer({ code, onClose, onConcept }) {
           >
             {starred ? '★' : '☆'}
           </button>
-          <button className="close" onClick={onClose} title="关闭">✕</button>
+          <button className="close" onClick={onClose} title="关闭" aria-label="关闭个股详情">✕</button>
         </div>
 
         <div className="drawer-body">

@@ -449,10 +449,12 @@ export default function App() {
         </section>
       )}
 
-      <nav className="tabs">
+      <nav className="tabs" role="tablist" aria-label="复盘视图">
         {TABS.map((t) => (
           <button
             key={t.key}
+            role="tab"
+            aria-selected={tab === t.key}
             className={tab === t.key ? 'on' : ''}
             onClick={() => setTab(t.key)}
           >
