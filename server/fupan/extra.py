@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime, timedelta
 from typing import Any
 
 from . import analysis, config, fetch
@@ -169,13 +170,8 @@ def lhb(code: str, limit: int = 5) -> list[dict[str, Any]]:
     return out
 
 
-def market_lhb(day: str, limit: int = 300) -> dict[str, Any]:
-    """Whole-market dragon-tiger list plus institutional seats for one day.
-
-    ``day`` must be a trading date (YYYY-MM-DD); the upstream returns nothing for
-    a closed day rather than falling back, so the caller decides which date to ask
-    for. Failures degrade to empty lists — the page then says there is no data.
-    """
+def _fetch_lhb_day(day: str, limit: int) -> dict[str, Any]:
+    """One day's billboard + institutional seats. Empty when the day is closed."""
     out: dict[str, Any] = {"date": day, "list": [], "orgs": []}
 
     try:
@@ -218,6 +214,41 @@ def market_lhb(day: str, limit: int = 300) -> dict[str, Any]:
         log.debug("institutional seats unavailable for %s: %s", day, exc)
 
     return out
+
+
+# The snapshot date is the calendar day, but the billboard only exists for days
+# that actually traded. Remembering the last date that returned rows avoids
+# re-walking the weekend gap on every request.
+_lhb_last_good: dict[str, str] = {"day": ""}
+
+
+def market_lhb(day: str, limit: int = 300) -> dict[str, Any]:
+    """Whole-market dragon-tiger list for the nearest trading day at or before ``day``.
+
+    Asking for a Sunday returns nothing upstream, so the caller would otherwise
+    show an empty page every weekend. Walk back up to a week to cover holidays.
+    """
+    cached = _lhb_last_good["day"]
+    if cached:
+        # A cached day is still valid only if it is not *after* the requested one.
+        if cached <= day:
+            hit = _fetch_lhb_day(cached, limit)
+            if hit["list"]:
+                return hit
+
+    try:
+        d = datetime.strptime(day, "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        return {"date": day, "list": [], "orgs": []}
+
+    for _ in range(7):
+        result = _fetch_lhb_day(d.isoformat(), limit)
+        if result["list"]:
+            _lhb_last_good["day"] = d.isoformat()
+            return result
+        d -= timedelta(days=1)
+
+    return {"date": day, "list": [], "orgs": []}
 
 
 def limitup_history(
