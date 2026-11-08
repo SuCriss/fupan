@@ -136,9 +136,12 @@ input { font-family: inherit; }
 }
 .nb-input:focus { border-color: var(--blue); }
 .nb-input::placeholder { color: #4d5c70; }
-.nb-foot { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
-.nb-hint { font-size: 10.5px; color: var(--dim); }
-.nb-foot .btn { margin-left: auto; }
+.nb-foot { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.nb-hint { font-size: 10.5px; color: var(--dim); margin-right: auto; }
+/* The AI action is the primary affordance here, so it gets the accent border. */
+.nb-ai { border-color: rgba(245,185,66,.45); color: var(--gold); }
+.nb-ai:hover:not(:disabled) { border-color: var(--gold); color: #fff; }
+.nb-ai:disabled { opacity: .55; }
 
 @media (max-width: 720px) {
   .notebox { margin-left: 12px; margin-right: 12px; }

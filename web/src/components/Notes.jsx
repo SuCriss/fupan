@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { getNote, saveNote } from '../lib/api'
+import { getNote, saveNote, draftNote } from '../lib/api'
 
 /**
  * Free-form review notes for the selected trading day.
@@ -16,6 +16,7 @@ export function NoteBox({ date }) {
   const [loaded, setLoaded] = useState('')   // last value fetched from the server
   const [status, setStatus] = useState('')   // '' | 'saving' | 'saved' | error text
   const [updatedAt, setUpdatedAt] = useState(null)
+  const [drafting, setDrafting] = useState(false)
   const timer = useRef(null)
   const alive = useRef(true)
 
@@ -66,6 +67,29 @@ export function NoteBox({ date }) {
     timer.current = setTimeout(() => flush(v), SAVE_DELAY)
   }
 
+  /**
+   * Ask the server to draft a note from this day's review data.
+   *
+   * The draft replaces the textarea and is saved immediately, so a generated
+   * paragraph is never lost if the tab closes before the debounce fires.
+   */
+  const draft = async () => {
+    if (!date || drafting) return
+    if (text.trim() && !window.confirm('将用 AI 生成的内容替换当前笔记，继续？')) return
+    setDrafting(true)
+    setStatus('生成中…')
+    try {
+      const r = await draftNote(date)
+      clearTimeout(timer.current)
+      setText(r.content || '')
+      await flush(r.content || '')
+    } catch (e) {
+      setStatus(e.message || '生成失败')
+    } finally {
+      setDrafting(false)
+    }
+  }
+
   // Flush on unmount / date switch so a pending edit is not dropped.
   useEffect(() => () => {
     clearTimeout(timer.current)
@@ -112,9 +136,17 @@ export function NoteBox({ date }) {
           <div className="nb-foot">
             <span className="nb-hint">停止输入后自动保存；清空内容即删除</span>
             <button
+              className="btn sm nb-ai"
+              onClick={draft}
+              disabled={drafting || status === 'saving'}
+              title="根据当日复盘数据生成一段笔记草稿"
+            >
+              {drafting ? '生成中…' : 'AI 生成'}
+            </button>
+            <button
               className="btn sm"
               onClick={() => { clearTimeout(timer.current); flush(text) }}
-              disabled={status === 'saving'}
+              disabled={status === 'saving' || drafting}
             >
               立即保存
             </button>

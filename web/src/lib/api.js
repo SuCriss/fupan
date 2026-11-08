@@ -79,6 +79,10 @@ export const saveNote = (date, content) =>
 /** Dates that already have a note. */
 export const getNoteDates = () => request('/api/note/dates')
 
+/** Draft a review note for one day from that day's review data. */
+export const draftNote = (date) =>
+  request('/api/note/draft', { method: 'POST', body: JSON.stringify({ date }) })
+
 export const getWatch = (codes = '') =>
   request(`/api/watch${codes ? `?codes=${encodeURIComponent(codes)}` : ''}`)
 

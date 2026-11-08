@@ -351,12 +351,42 @@ def _sanitize(text: str) -> str:
     return out
 
 
-def _call_llm(facts: str, limit_up: bool = True) -> str:
+def _chat(system: str, user: str, max_tokens: int = 1200, temperature: float = 0.3) -> str:
+    """One OpenAI-compatible chat call. Raises on transport/HTTP failure."""
     base = os.environ["FUPAN_LLM_BASE_URL"].rstrip("/")
     key = os.environ["FUPAN_LLM_API_KEY"]
     model = os.environ.get("FUPAN_LLM_MODEL", "gpt-4o-mini")
     timeout = float(os.environ.get("FUPAN_LLM_TIMEOUT", "45"))
 
+    body = json.dumps({
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }).encode("utf-8")
+
+    req = urllib.request.Request(
+        f"{base}/chat/completions",
+        data=body,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {key}",
+            # Some OpenAI-compatible gateways sit behind Cloudflare, which rejects
+            # the default Python-urllib user agent with HTTP 403 (error 1010).
+            "User-Agent": cfg.USER_AGENT,
+            "Accept": "application/json",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        payload = json.loads(r.read().decode("utf-8", "replace"))
+    return (payload.get("choices") or [{}])[0].get("message", {}).get("content", "").strip()
+
+
+def _call_llm(facts: str, limit_up: bool = True) -> str:
     system = SYSTEM_PROMPT_LIMITUP if limit_up else SYSTEM_PROMPT_MOVE
     # The format is repeated inline rather than referenced as "上述": some
     # OpenAI-compatible gateways drop or flatten the system role, and a model that
@@ -381,33 +411,7 @@ def _call_llm(facts: str, limit_up: bool = True) -> str:
             "风险提示：<一到两个客观风险>\n\n"
             "【股票事实】\n"
         )
-
-    body = json.dumps({
-        "model": model,
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": ask + facts},
-        ],
-        "temperature": 0.3,
-        "max_tokens": 1200,
-    }).encode("utf-8")
-
-    req = urllib.request.Request(
-        f"{base}/chat/completions",
-        data=body,
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {key}",
-            # Some OpenAI-compatible gateways sit behind Cloudflare, which rejects
-            # the default Python-urllib user agent with HTTP 403 (error 1010).
-            "User-Agent": cfg.USER_AGENT,
-            "Accept": "application/json",
-        },
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        payload = json.loads(r.read().decode("utf-8", "replace"))
-    return (payload.get("choices") or [{}])[0].get("message", {}).get("content", "").strip()
+    return _chat(system, ask + facts)
 
 
 def generate_sync(payload: dict[str, Any], trade_date: str, force: bool = False) -> str | None:
@@ -485,3 +489,119 @@ def submit(code_payload_provider, code: str, trade_date: str) -> bool:
 def pending(code: str, trade_date: str) -> bool:
     with _lock:
         return f"{code}:{trade_date}" in _inflight
+
+
+# ---------------------------------------------------------------------------
+# Review-note draft
+# ---------------------------------------------------------------------------
+NOTE_SYSTEM = (
+    "你是A股短线复盘助手。根据给定的当日市场数据，写一段复盘笔记草稿。\n"
+    "硬性要求：\n"
+    "1) 200-350 字，分 3 段，每段一个主题，段与段之间空一行；\n"
+    "2) 用交易者写给自己的口吻客观记录，不要标题、不要 markdown 符号、不要项目符号；\n"
+    "3) 只引用给定数据，严禁编造新闻、研报、传闻或未给出的数字；\n"
+    "4) 数据不足以支撑判断时直接写明「暂无明确主线」，不要推测；\n"
+    "5) 严禁任何操作建议与预测性表述（买入、卖出、持有、追高、抄底、止损、止盈、"
+    "目标价、建议关注、明日必涨等），只做客观记录与观察项列举。\n"
+    "内容顺序：今日情绪与赚钱效应 → 主线与龙头结构 → 明日需要盯的客观观察项。"
+)
+
+# Same chatter filter as the attribution path, plus note-specific phrases.
+_NOTE_META = re.compile(
+    r"本对话|你指的|请把原文|贴一下|我再对齐|我看不到|上述三行|上述格式|"
+    r"作为(?:AI|人工智能)|我无法|请提供|如果你需要|以下是|根据您提供的"
+)
+
+
+def _build_note_facts(payload: dict[str, Any]) -> str:
+    """Flatten one day's review data into the fact block the model may cite."""
+    stats = payload.get("stats") or {}
+    sent = payload.get("sentiment") or {}
+    lines = [f"交易日：{payload.get('date') or stats.get('date') or '--'}"]
+
+    lines.append(
+        f"涨停 {stats.get('upCount', 0)} 家，跌停 {stats.get('downCount', 0)} 家；"
+        f"封板率 {stats.get('sealRate', 0)}%，炸板率 {stats.get('brokenRate', 0)}%"
+        f"（炸板 {stats.get('zhaCount', 0)} 家）"
+    )
+    lines.append(
+        f"最高板 {stats.get('maxBoard', 0)} 板，连板 {stats.get('lianbanCount', 0)} 家"
+    )
+
+    if sent.get("score") is not None:
+        parts = "，".join(f"{p['k']} {p['v']}" for p in (sent.get("parts") or []))
+        lines.append(f"情绪温度 {sent.get('score')}（{sent.get('label')}）：{parts}")
+
+    dist = payload.get("timedist") or {}
+    if dist.get("total"):
+        lines.append(
+            f"涨停时间分布：竞价 {dist.get('auction', 0)} 家，"
+            f"开盘30分 {dist.get('opening', 0)} 家，尾盘30分 {dist.get('closing', 0)} 家"
+        )
+
+    leaders = payload.get("leaders") or []
+    if leaders:
+        items = "，".join(
+            f"{x.get('name')}（{x.get('daysText') or '首板'}，评分 {x.get('score') or '--'}）"
+            for x in leaders[:5]
+        )
+        lines.append(f"龙头榜前五：{items}")
+
+    sectors = payload.get("sectors") or []
+    if sectors:
+        items = "，".join(f"{s.get('name')} {s.get('n')}家" for s in sectors[:6])
+        lines.append(f"板块涨停家数：{items}")
+
+    return "\n".join(lines)
+
+
+def _clean_note(text: str) -> str:
+    """Strip markdown noise and any advisory sentence the prompt forbade."""
+    out_lines: list[str] = []
+    advice = re.compile(
+        r"买入|卖出|持有|追高|抄底|加仓|减仓|建仓|清仓|止损|止盈|目标价|建议关注|"
+        r"可考虑|介入|看涨|看跌|明日必涨|重点参与"
+    )
+    for raw in (text or "").split("\n"):
+        line = raw.strip()
+        if not line:
+            if out_lines and out_lines[-1] != "":
+                out_lines.append("")
+            continue
+        # Drop markdown bullets/headings and inline emphasis.
+        line = re.sub(r"^[#>*\-•·]+\s*", "", line)
+        line = line.replace("**", "").replace("`", "")
+        if _NOTE_META.search(line):
+            continue
+        if advice.search(line):
+            continue
+        if line:
+            out_lines.append(line)
+    # Trim trailing blank lines.
+    while out_lines and out_lines[-1] == "":
+        out_lines.pop()
+    return "\n".join(out_lines)
+
+
+def generate_note(payload: dict[str, Any]) -> str | None:
+    """Draft a review note from one day's data. None when the model is unset."""
+    if not configured():
+        return None
+    facts = _build_note_facts(payload)
+    try:
+        raw = _chat(
+            NOTE_SYSTEM,
+            "请为下面这个交易日写一段复盘笔记草稿：\n\n" + facts,
+            max_tokens=900,
+            temperature=0.5,
+        )
+    except urllib.error.HTTPError as exc:
+        detail = exc.read()[:200].decode("utf-8", "replace")
+        log.warning("note draft HTTP %s: %s", exc.code, detail)
+        return None
+    except Exception as exc:
+        log.warning("note draft failed: %s", exc)
+        return None
+
+    cleaned = _clean_note(raw)
+    return cleaned or None

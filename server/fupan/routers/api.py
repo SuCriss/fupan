@@ -243,6 +243,60 @@ def api_save_note(payload: dict = Body(...)) -> dict[str, Any]:
     return store.save_note(day, content)
 
 
+@router.post("/note/draft")
+def api_note_draft(payload: dict = Body(...)) -> dict[str, Any]:
+    """Draft a review note for one day from that day's review data.
+
+    Reads the snapshot (live or archived) rather than trusting the client to send
+    numbers, so the draft can only cite data the server actually holds.
+    """
+    if not llm.configured():
+        raise HTTPException(status_code=400, detail="未配置 AI 模型，无法生成")
+
+    day = str(payload.get("date") or "").strip()
+    snap = store.cached_snapshot() or {}
+    current = (snap.get("stats") or {}).get("date") or ""
+    if day and day != current:
+        doc = store.load_snapshot(day)
+        if not doc:
+            raise HTTPException(status_code=404, detail=f"暂无 {day} 的快照数据")
+    else:
+        doc = snap
+    if not doc:
+        raise HTTPException(status_code=503, detail="快照尚未就绪，请稍后重试")
+
+    stats = doc.get("stats") or {}
+    rows = (doc.get("pools") or {}).get("up") or []
+
+    # Bucket first-seal times the same way the UI chart does.
+    dist = {"total": 0, "auction": 0, "opening": 0, "closing": 0}
+    for r in rows:
+        t = (r.get("firstTime") or "").strip()
+        if not t or t == "--:--":
+            continue
+        dist["total"] += 1
+        if t <= "09:30:00":
+            dist["auction"] += 1
+        elif t <= "10:00:00":
+            dist["opening"] += 1
+        elif t >= "14:30:00":
+            dist["closing"] += 1
+
+    payload_in = {
+        "date": stats.get("date") or day,
+        "stats": stats,
+        "sentiment": sentiment.score(stats, (doc.get("compare") or {}).get("promotionRate")),
+        "leaders": doc.get("leaders") or [],
+        "sectors": stats.get("sectors") or [],
+        "timedist": dist,
+    }
+
+    text = llm.generate_note(payload_in)
+    if not text:
+        raise HTTPException(status_code=502, detail="AI 生成失败，请稍后重试")
+    return {"date": payload_in["date"], "content": text}
+
+
 @router.get("/note/dates")
 def api_note_dates() -> dict[str, Any]:
     """Dates that already have a note, newest first."""
