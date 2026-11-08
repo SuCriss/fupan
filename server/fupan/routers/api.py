@@ -8,7 +8,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Response
 
-from .. import analysis, concepts, config as cfg, detail, fetch, indicators, llm, sentiment, store
+from .. import analysis, concepts, config as cfg, detail, extra, fetch, indicators, llm, sentiment, store
 
 router = APIRouter(prefix="/api", tags=["fupan"])
 
@@ -160,6 +160,20 @@ def api_sentiment(days: int = Query(30, ge=1, le=120)) -> dict[str, Any]:
             }
         )
     return {"list": series}
+
+
+@router.get("/lhb")
+def api_lhb(date: str = Query("", description="YYYY-MM-DD; empty = snapshot date")) -> dict[str, Any]:
+    """Whole-market dragon-tiger list for one trading day.
+
+    Reads the snapshot only to pick a default date; the rows themselves come from
+    the exchange feed, which publishes a finished day once and never revises it.
+    """
+    snap = store.cached_snapshot() or {}
+    day = date.strip() or ((snap.get("stats") or {}).get("date") or "")
+    if not day:
+        raise HTTPException(status_code=503, detail="尚无快照日期，请先刷新")
+    return extra.market_lhb(day)
 
 
 @router.get("/sectors")

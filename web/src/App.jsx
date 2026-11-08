@@ -17,6 +17,7 @@ import { Kpis, IndexBar, LeaderCards } from './components/Overview'
 import { DataTable, Ladder, HotList, Compare, Drawdown } from './components/Pools'
 import { WatchList } from './components/WatchList'
 import { TimeDist } from './components/TimeDist'
+import { LhbBoard } from './components/Lhb'
 
 // The drawer carries the charting code (K-line, minute chart), which is only
 // needed once a stock is opened. Keeping it out of the initial bundle speeds up
@@ -29,6 +30,7 @@ const TABS = [
   { key: 'watch', label: '自选' },
   { key: 'leaders', label: '龙头榜' },
   { key: 'sectors', label: '板块' },
+  { key: 'lhb', label: '龙虎榜' },
   { key: 'up', label: '涨停池' },
   { key: 'lb', label: '连板池' },
   { key: 'zb', label: '炸板池' },
@@ -541,6 +543,8 @@ export default function App() {
           ) : (
             <SectorGrid sectors={sectors} onSelect={setSectorSel} />
           )
+        ) : tab === 'lhb' ? (
+          <LhbBoard date={stats?.date || ''} onOpen={openDetail} />
         ) : tab === 'ladder' ? (
           <Ladder ladder={data.ladder} onOpen={openDetail} />
         ) : tab === 'hot' ? (

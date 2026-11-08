@@ -442,6 +442,32 @@ tbody tr:last-child td { border-bottom: none; }
   font-variant-numeric: tabular-nums; white-space: nowrap;
 }
 
+/* ---------- dragon-tiger board -------------------------------------- */
+.lhb-bar {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px;
+}
+.lhb-tabs { display: flex; gap: 6px; }
+.lhb-tabs button {
+  background: var(--panel2); border: 1px solid var(--line2); color: var(--muted);
+  border-radius: 8px; padding: 5px 12px; font-size: 12px;
+}
+.lhb-tabs button.on {
+  background: rgba(59,122,232,.16); border-color: var(--blue); color: #fff;
+}
+.lhb-meta { font-size: 11.5px; color: var(--dim); }
+.lhb-q { margin-left: auto; width: 160px; }
+.org-tag {
+  margin-left: 6px; font-size: 9.5px; padding: 1px 5px; border-radius: 3px;
+  background: rgba(180,107,255,.14); color: #c9a3ff;
+  border: 1px solid rgba(180,107,255,.3);
+}
+.reason-cell { font-size: 11px; color: var(--muted); max-width: 260px; }
+
+@media (max-width: 720px) {
+  .lhb-q { margin-left: 0; width: 100%; }
+  .reason-cell { max-width: none; }
+}
+
 /* ---------- hot ---------- */
 .hotrow {
   display: flex; align-items: center; gap: 14px; padding: 11px 15px;

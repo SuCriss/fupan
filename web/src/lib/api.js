@@ -50,6 +50,10 @@ export const getSentiment = (days = 60) =>
 export const getSectors = (limit = 24) =>
   request(`/api/sectors?limit=${encodeURIComponent(limit)}`)
 
+/** Whole-market dragon-tiger list plus institutional seats for one day. */
+export const getLhb = (date = '') =>
+  request(`/api/lhb${date ? `?date=${encodeURIComponent(date)}` : ''}`)
+
 export const getWatch = (codes = '') =>
   request(`/api/watch${codes ? `?codes=${encodeURIComponent(codes)}` : ''}`)
 

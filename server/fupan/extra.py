@@ -35,6 +35,29 @@ _LHB = (
     "&pageNumber=1&pageSize={n}&sortColumns=TRADE_DATE&sortTypes=-1"
 )
 
+# Whole-market dragon-tiger list for one trading day. The date filter is
+# mandatory: without it the API sorts the entire history (90k+ pages) and the
+# "top net buy" rows come back from 2015.
+_LHB_DAY = (
+    "https://datacenter-web.eastmoney.com/api/data/v1/get"
+    "?reportName=RPT_DAILYBILLBOARD_DETAILSNEW"
+    "&columns=SECURITY_CODE,SECURITY_NAME_ABBR,TRADE_DATE,EXPLANATION,"
+    "BILLBOARD_NET_AMT,BILLBOARD_BUY_AMT,BILLBOARD_SELL_AMT,CHANGE_RATE,"
+    "TURNOVERRATE,ACCUM_AMOUNT"
+    "&filter=(TRADE_DATE%3D%27{day}%27)"
+    "&pageNumber=1&pageSize={n}&sortColumns=BILLBOARD_NET_AMT&sortTypes=-1"
+)
+
+# Institutional seats: how many times institutions bought/sold and for how much.
+_ORG_DAY = (
+    "https://datacenter-web.eastmoney.com/api/data/v1/get"
+    "?reportName=RPT_ORGANIZATION_TRADE_DETAILS"
+    "&columns=SECURITY_CODE,SECURITY_NAME_ABBR,TRADE_DATE,BUY_TIMES,SELL_TIMES,"
+    "BUY_AMT,SELL_AMT,NET_BUY_AMT,CHANGE_RATE,TURNOVERRATE"
+    "&filter=(TRADE_DATE%3D%27{day}%27)"
+    "&pageNumber=1&pageSize={n}&sortColumns=NET_BUY_AMT&sortTypes=-1"
+)
+
 SINA_REFERER = "https://finance.sina.com.cn/"
 EM_REFERER = "https://data.eastmoney.com/"
 
@@ -143,6 +166,57 @@ def lhb(code: str, limit: int = 5) -> list[dict[str, Any]]:
                 "nextChg": round(_f(nxt), 2) if nxt is not None else None,
             }
         )
+    return out
+
+
+def market_lhb(day: str, limit: int = 300) -> dict[str, Any]:
+    """Whole-market dragon-tiger list plus institutional seats for one day.
+
+    ``day`` must be a trading date (YYYY-MM-DD); the upstream returns nothing for
+    a closed day rather than falling back, so the caller decides which date to ask
+    for. Failures degrade to empty lists — the page then says there is no data.
+    """
+    out: dict[str, Any] = {"date": day, "list": [], "orgs": []}
+
+    try:
+        doc = _loads(_get_text(_LHB_DAY.format(day=day, n=limit), EM_REFERER))
+        rows = ((doc or {}).get("result") or {}).get("data") or []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            out["list"].append({
+                "code": row.get("SECURITY_CODE") or "",
+                "name": row.get("SECURITY_NAME_ABBR") or "",
+                "reason": row.get("EXPLANATION") or "",
+                "buy": _f(row.get("BILLBOARD_BUY_AMT")),
+                "sell": _f(row.get("BILLBOARD_SELL_AMT")),
+                "net": _f(row.get("BILLBOARD_NET_AMT")),
+                "chg": _f(row.get("CHANGE_RATE")),
+                "turnover": _f(row.get("TURNOVERRATE")),
+                "amount": _f(row.get("ACCUM_AMOUNT")),
+            })
+    except Exception as exc:
+        log.debug("market dragon-tiger unavailable for %s: %s", day, exc)
+
+    try:
+        doc = _loads(_get_text(_ORG_DAY.format(day=day, n=limit), EM_REFERER))
+        rows = ((doc or {}).get("result") or {}).get("data") or []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            out["orgs"].append({
+                "code": row.get("SECURITY_CODE") or "",
+                "name": row.get("SECURITY_NAME_ABBR") or "",
+                "buyTimes": int(_f(row.get("BUY_TIMES"))),
+                "sellTimes": int(_f(row.get("SELL_TIMES"))),
+                "buy": _f(row.get("BUY_AMT")),
+                "sell": _f(row.get("SELL_AMT")),
+                "net": _f(row.get("NET_BUY_AMT")),
+                "chg": _f(row.get("CHANGE_RATE")),
+            })
+    except Exception as exc:
+        log.debug("institutional seats unavailable for %s: %s", day, exc)
+
     return out
 
 
