@@ -18,13 +18,11 @@ fi
 
 cp "$ENV" "$ENV.bak-$(date +%Y%m%d-%H%M%S)"
 
-if grep -q '^FUPAN_PASSWORD=' "$ENV"; then
-  # Use a temp file so a sed failure cannot truncate the config.
-  sed "s|^FUPAN_PASSWORD=.*|FUPAN_PASSWORD=${PW}|" "$ENV" > "$ENV.tmp"
-  mv "$ENV.tmp" "$ENV"
-else
-  printf '\n# Access gate (set 2026-11-08)\nFUPAN_PASSWORD=%s\n' "$PW" >> "$ENV"
-fi
+# Drop every previous password line, including one left commented out by
+# disable_auth.sh, so the file never carries two conflicting entries.
+grep -vE '^#?FUPAN_PASSWORD=' "$ENV" > "$ENV.tmp" || true
+printf 'FUPAN_PASSWORD=%s\n' "$PW" >> "$ENV.tmp"
+mv "$ENV.tmp" "$ENV"
 chmod 600 "$ENV"
 
 systemctl restart fupan.service

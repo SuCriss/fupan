@@ -431,6 +431,12 @@ export default function App() {
           setAuth({ enabled: true, authenticated: true })
           load()
           loadTrend()
+          // These were blocked by the 401 before sign-in; fetch them now instead
+          // of leaving the index bar empty until the next 60s poll.
+          getMarket().then(setMarket).catch(() => {})
+          getDates()
+            .then((r) => setDates((r.dates || []).map((x) => x.date)))
+            .catch(() => {})
         }}
       />
     )
