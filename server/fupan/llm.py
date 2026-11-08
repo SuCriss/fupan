@@ -523,6 +523,7 @@ NOTE_SYSTEM = (
     "数据不足时直接写「暂无明确主线」；\n"
     "6) 严禁任何操作建议与预测（买入、卖出、持有、追高、抄底、止损、止盈、"
     "目标价、仓位、主攻、不追、做最强、做扩散、建议关注、明日必涨等）。\n"
+    "7) 全文不超过 350 字；超出部分会被程序直接丢弃，写多了等于没写。\n"
     "内容顺序：今日情绪与赚钱效应 → 主线与龙头结构 → 明日需要盯的客观观察项。"
 )
 
@@ -530,7 +531,8 @@ NOTE_SYSTEM = (
 _NOTE_META = re.compile(
     r"本对话|你指的|请把原文|贴一下|我再对齐|我看不到|上述三行|上述格式|"
     r"作为(?:AI|人工智能)|我无法|请提供|如果你需要|以下是|根据您提供的|"
-    r"需要我|要不要我|是否要|要我|如需|可以帮你|建议核对|建议确认"
+    r"需要我|要不要我|是否要|要我|如需|可以帮你|建议核对|建议确认|"
+    r"需要核实|待核实|存疑|样本可能偏小|统计标准"
 )
 
 # Anything that reads as trading instruction rather than observation.
@@ -628,18 +630,32 @@ def _clean_note(text: str) -> str:
             out_lines.pop()
 
     result = "\n".join(out_lines).strip()
+
     # Hard cap: the prompt asks for 200-350 chars, but a reasoning model can still
-    # produce an essay. Keep whole paragraphs so the cut never lands mid-sentence.
-    if len(result) > 600:
+    # produce an essay. Cut on a paragraph boundary and never leave a trailing
+    # fragment or a heading whose body was dropped.
+    if len(result) > 520:
         kept: list[str] = []
         total = 0
         for para in result.split("\n\n"):
-            if total + len(para) > 550:
+            if total + len(para) > 480:
                 break
             kept.append(para)
             total += len(para)
-        result = "\n\n".join(kept).strip() if kept else result[:550]
-    return result
+        result = "\n\n".join(kept).strip() if kept else result
+
+    paras = [p for p in result.split("\n\n") if p.strip()]
+    while paras:
+        last = paras[-1].strip()
+        # Drop a heading with no body, or a paragraph that does not end a sentence.
+        if re.fullmatch(r"[一二三四五六七八九十]+、.*", last):
+            paras.pop()
+            continue
+        if len(paras) > 1 and not last.endswith(("。", "！", "；", "…")):
+            paras.pop()
+            continue
+        break
+    return "\n\n".join(paras).strip()
 
 
 def generate_note(payload: dict[str, Any]) -> str | None:
