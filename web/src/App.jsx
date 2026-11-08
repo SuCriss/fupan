@@ -309,15 +309,17 @@ export default function App() {
 
   // --- watchlist limit alerts ----------------------------------------------
   // Compare each name's limit state with the previous check and notify on a
-  // transition into 涨停/跌停/炸板. Runs at most once a minute.
-  const lastAlertCheck = useRef(0)
+  // transition into 涨停/跌停/炸板. Runs on its own timer rather than piggybacking
+  // on the snapshot refresh, so alerts keep working even when the review data is
+  // already fresh.
   useEffect(() => {
-    if (!data || !notifyOn || !inSession) return
-    const now = Date.now()
-    if (now - lastAlertCheck.current < 60000) return
-    lastAlertCheck.current = now
-    getWatch()
-      .then((r) => {
+    if (!notifyOn || !inSession) return undefined
+    let alive = true
+
+    const tick = async () => {
+      try {
+        const r = await getWatch()
+        if (!alive) return
         const list = r.list || []
         if (!list.length) return
         const prev = readAlertState()
@@ -332,9 +334,15 @@ export default function App() {
         }
         writeAlertState(next)
         if (changes.length) notifyAlerts(changes)
-      })
-      .catch(() => { /* alerts are optional */ })
-  }, [data, notifyOn, inSession])
+      } catch {
+        /* alerts are optional */
+      }
+    }
+
+    tick()
+    const t = setInterval(tick, 60000)
+    return () => { alive = false; clearInterval(t) }
+  }, [notifyOn, inSession])
 
   // Keep the relative age honest without re-rendering on every tick.
   useEffect(() => {
