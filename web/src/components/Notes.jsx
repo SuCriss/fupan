@@ -47,6 +47,11 @@ export function NoteBox({ date }) {
       if (!alive.current) return
       setLoaded(r.content || '')
       setUpdatedAt(r.updatedAt || null)
+      // The server is the source of truth. If the textarea state was cleared
+      // between the edit and this response (a re-mount, or a fast paste that
+      // raced the controlled-input update), restore what was actually saved
+      // rather than showing an empty box next to a "saved" badge.
+      setText((prev) => (prev.trim() ? prev : (r.content || '')))
       setStatus('saved')
     } catch (e) {
       if (alive.current) setStatus(e.message || '保存失败')
