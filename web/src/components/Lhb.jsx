@@ -72,7 +72,7 @@ export function LhbBoard({ date = '', onOpen }) {
               <th scope="col">卖出</th>
               <th scope="col">净额</th>
               <th scope="col">换手</th>
-              <th scope="col" className="l">上榜原因</th>
+              <th scope="col" className="l reason-cell">上榜原因</th>
             </tr>
           </thead>
           <tbody>

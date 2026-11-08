@@ -465,7 +465,9 @@ tbody tr:last-child td { border-bottom: none; }
 
 @media (max-width: 720px) {
   .lhb-q { margin-left: 0; width: 100%; }
-  .reason-cell { max-width: none; }
+  /* The reason text is long and would push the table far past a phone screen;
+     it stays available on desktop where there is room for it. */
+  .reason-cell { display: none; }
 }
 
 /* ---------- hot ---------- */
