@@ -1,5 +1,60 @@
 import React, { useMemo, useState } from 'react'
 import { fmtAmt, pct, cls } from '../lib/format'
+import { exportCsv } from '../lib/export'
+
+/**
+ * Plain-text field map for CSV export, kept separate from the render columns:
+ * those return JSX, which would stringify to "[object Object]" in a cell.
+ */
+const CSV_FIELDS = {
+  up: [
+    ['代码', (s) => s.code],
+    ['名称', (s) => s.name],
+    ['现价', (s) => Number(s.latest || 0).toFixed(2)],
+    ['涨幅%', (s) => Number(s.chg || 0).toFixed(2)],
+    ['连板', (s) => s.daysText],
+    ['首封', (s) => s.firstTime || ''],
+    ['区间涨停', (s) => s.statText || ''],
+    ['板型', (s) => s.boardType || ''],
+    ['封单额', (s) => Math.round(s.sealAmt || 0)],
+    ['炸板次数', (s) => s.openNum || 0],
+    ['换手%', (s) => Number(s.turnover || 0).toFixed(1)],
+    ['流通市值', (s) => Math.round(s.floatCap || 0)],
+    ['板块', (s) => s.sector || ''],
+    ['评分', (s) => s.score?.total ?? ''],
+  ],
+  lb: [
+    ['代码', (s) => s.code],
+    ['名称', (s) => s.name],
+    ['现价', (s) => Number(s.latest || 0).toFixed(2)],
+    ['涨幅%', (s) => Number(s.chg || 0).toFixed(2)],
+    ['连板数', (s) => s.boards],
+    ['统计', (s) => s.daysText],
+    ['首封', (s) => s.firstTime || ''],
+    ['板型', (s) => s.boardType || ''],
+    ['封单额', (s) => Math.round(s.sealAmt || 0)],
+    ['评分', (s) => s.score?.total ?? ''],
+  ],
+  zb: [
+    ['代码', (s) => s.code],
+    ['名称', (s) => s.name],
+    ['现价', (s) => Number(s.latest || 0).toFixed(2)],
+    ['涨幅%', (s) => Number(s.chg || 0).toFixed(2)],
+    ['最高', (s) => Number(s.high || 0).toFixed(2)],
+    ['换手%', (s) => Number(s.turnover || 0).toFixed(1)],
+    ['成交额', (s) => Math.round(s.amount || 0)],
+    ['市场', (s) => s.market || ''],
+  ],
+  dt: [
+    ['代码', (s) => s.code],
+    ['名称', (s) => s.name],
+    ['现价', (s) => Number(s.latest || 0).toFixed(2)],
+    ['跌幅%', (s) => Number(s.chg || 0).toFixed(2)],
+    ['换手%', (s) => Number(s.turnover || 0).toFixed(1)],
+    ['成交额', (s) => Math.round(s.amount || 0)],
+    ['市场', (s) => s.market || ''],
+  ],
+}
 
 /** Default sort per pool kind; user clicks override it. */
 const SORTS = {
@@ -106,37 +161,57 @@ export function DataTable({ kind, rows, query, onOpen }) {
 
   if (!list.length) return <div className="empty">没有匹配的数据</div>
 
+  const handleExport = () => {
+    const fields = CSV_FIELDS[kind]
+    if (!fields) return
+    const stamp = new Date().toISOString().slice(0, 10)
+    exportCsv(
+      `${kind === 'up' ? '涨停池' : kind === 'lb' ? '连板池' : kind === 'zb' ? '炸板池' : '跌停池'}-${stamp}`,
+      fields.map(([t]) => t),
+      // Exports the current filtered + sorted view, not the raw pool.
+      list.map((s) => fields.map(([, get]) => get(s)))
+    )
+  }
+
   return (
-    <div className="tbl-wrap">
-      <table>
-        <thead>
-          <tr>
-            {cols.map((c) => (
-              <th
-                key={c.k}
-                scope="col"
-                className={c.l ? 'l' : ''}
-                onClick={() =>
-                  setSort((cur) => ({ key: c.k, dir: cur.key === c.k ? -cur.dir : -1 }))
-                }
-              >
-                {c.t}
-                {sort.key === c.k ? (sort.dir < 0 ? ' ↓' : ' ↑') : ''}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {list.map((s) => (
-            <tr key={s.code} onClick={() => onOpen(s.code)}>
+    <>
+      <div className="tbl-tools">
+        <span className="tbl-count">{list.length} 只</span>
+        <button className="btn sm" onClick={handleExport} title="导出当前筛选与排序后的数据">
+          导出 CSV
+        </button>
+      </div>
+      <div className="tbl-wrap">
+        <table>
+          <thead>
+            <tr>
               {cols.map((c) => (
-                <td key={c.k} className={c.l ? 'l' : ''}>{c.w(s)}</td>
+                <th
+                  key={c.k}
+                  scope="col"
+                  className={c.l ? 'l' : ''}
+                  onClick={() =>
+                    setSort((cur) => ({ key: c.k, dir: cur.key === c.k ? -cur.dir : -1 }))
+                  }
+                >
+                  {c.t}
+                  {sort.key === c.k ? (sort.dir < 0 ? ' ↓' : ' ↑') : ''}
+                </th>
               ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            {list.map((s) => (
+              <tr key={s.code} onClick={() => onOpen(s.code)}>
+                {cols.map((c) => (
+                  <td key={c.k} className={c.l ? 'l' : ''}>{c.w(s)}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
   )
 }
 

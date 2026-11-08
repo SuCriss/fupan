@@ -104,6 +104,14 @@ input { font-family: inherit; }
 }
 .btn.primary:hover { filter: brightness(1.12); }
 .btn:disabled { opacity: .55; cursor: not-allowed; }
+.btn.sm { padding: 5px 11px; font-size: 12px; }
+
+/* ---------- table toolbar (export) ---------------------------------- */
+.tbl-tools {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 8px;
+}
+.tbl-count { font-size: 11.5px; color: var(--dim); font-variant-numeric: tabular-nums; }
+.tbl-tools .btn { margin-left: auto; }
 /* Data-freshness readout: a tier dot plus "MM-DD HH:MM 更新 · N 分钟前". */
 .stamp {
   display: inline-flex; align-items: center; gap: 5px;
