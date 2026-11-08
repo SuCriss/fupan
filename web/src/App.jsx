@@ -11,15 +11,7 @@ import {
   getAuthStatus,
   logout,
 } from './lib/api'
-import {
-  readPref,
-  writePref,
-  notifyUpdated,
-  notifyAlerts,
-  readAlertState,
-  writeAlertState,
-} from './lib/prefs'
-import { exportSummaryPng } from './lib/export'
+import { readPref, writePref, notifyUpdated, notifyAlerts, readAlertState, writeAlertState } from './lib/prefs'
 import StockSearch from './components/StockSearch'
 import { SentimentPanel } from './components/Sentiment'
 import { SectorGrid, SectorDetail } from './components/Sector'
@@ -93,7 +85,6 @@ export default function App() {
   const [autoMin, setAutoMin] = useState(() => Number(readPref('fupan_auto_min')) || 10)
   const [nextAt, setNextAt] = useState(0)
   const [notifyOn, setNotifyOn] = useState(() => readPref('fupan_notify') === '1')
-  const [exporting, setExporting] = useState(false)
   // null = still checking; {enabled, authenticated} afterwards.
   const [auth, setAuth] = useState(null)
   const busyRef = useRef(false)
@@ -266,25 +257,6 @@ export default function App() {
   }, [])
 
   const openDetail = useCallback((code) => setDetailCode(code), [])
-
-  /** Draw and download the shareable summary card. */
-  const handleExportPng = useCallback(async () => {
-    if (!data) return
-    setExporting(true)
-    try {
-      await exportSummaryPng({
-        date: data.stats?.date || '',
-        stats: data.stats,
-        sentiment: data.sentiment,
-        leaders: data.leaders,
-        sectors,
-      })
-    } catch (e) {
-      setError(e.message || String(e))
-    } finally {
-      setExporting(false)
-    }
-  }, [data, sectors])
 
   // --- trading-hours auto refresh -----------------------------------------
   useEffect(() => {
@@ -590,14 +562,6 @@ export default function App() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
-        <button
-          className="btn sm"
-          onClick={handleExportPng}
-          disabled={!data || exporting}
-          title="导出一张可分享的复盘摘要图"
-        >
-          {exporting ? '生成中…' : '导出图片'}
-        </button>
         <div className={`autoref${autoOn ? ' on' : ''}`}>
           <button
             type="button"

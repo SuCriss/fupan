@@ -28,7 +28,6 @@ const check = (name, ok, extra = '') => {
   await gotoWithRetry(page, SITE, { timeout: 90000 })
   await page.waitForSelector('.kpis .kpi', { timeout: 90000 })
 
-  // --- CSV from a filtered table -------------------------------------
   await page.locator('.tabs button', { hasText: '涨停池' }).first().click()
   await page.waitForSelector('.tbl-tools', { timeout: 30000 })
 
@@ -39,15 +38,15 @@ const check = (name, ok, extra = '') => {
   await page.locator('.toolbar .search').fill('00')
   await page.waitForTimeout(400)
   const filteredRows = await page.locator('.tbl-tools .tbl-count').textContent()
+  const totalN = Number((totalRows.match(/(\d+) 只/) || [])[1] || 0)
   const filteredN = Number((filteredRows.match(/(\d+) 只/) || [])[1] || 0)
-  check('筛选后条数减少', filteredN > 0 && filteredN < Number((totalRows.match(/(\d+) 只/) || [])[1]), `${totalRows.trim()} -> ${filteredRows.trim()}`)
+  check('筛选后条数减少', filteredN > 0 && filteredN < totalN, `${totalN} -> ${filteredN}`)
 
   const [csvDl] = await Promise.all([
     page.waitForEvent('download', { timeout: 30000 }),
     page.locator('.tbl-tools .btn', { hasText: '导出 CSV' }).click(),
   ])
-  const csvPath = await csvDl.path()
-  const raw = fs.readFileSync(csvPath)
+  const raw = fs.readFileSync(await csvDl.path())
   const text = raw.toString('utf8')
   const lines = text.replace(/^\ufeff/, '').split(/\r?\n/).filter(Boolean)
 
@@ -57,24 +56,9 @@ const check = (name, ok, extra = '') => {
   check('CSV 行数与筛选一致', lines.length - 1 === filteredN, `${lines.length - 1} 行 / 界面 ${filteredN} 只`)
   check('CSV 首行含六位代码', /^\d{6},/.test(lines[1] || ''), (lines[1] || '').slice(0, 30))
 
-  await page.locator('.toolbar .search').fill('')
-  await page.waitForTimeout(300)
-
-  // --- PNG summary card ----------------------------------------------
-  const [pngDl] = await Promise.all([
-    page.waitForEvent('download', { timeout: 60000 }),
-    page.locator('.toolbar .btn', { hasText: '导出图片' }).click(),
-  ])
-  const pngPath = await pngDl.path()
-  const png = fs.readFileSync(pngPath)
-
-  const isPng = png[0] === 0x89 && png.toString('ascii', 1, 4) === 'PNG'
-  const w = png.readUInt32BE(16)
-  const h = png.readUInt32BE(20)
-  check('PNG 文件名含日期', /复盘-\d{4}-\d{2}-\d{2}\.png/.test(pngDl.suggestedFilename()), pngDl.suggestedFilename())
-  check('导出的确是 PNG', isPng, `${png.length} bytes`)
-  check('PNG 尺寸为 2400x1640（2x 高清）', w === 2400 && h === 1640, `${w}x${h}`)
-  check('PNG 体积合理（非空白图）', png.length > 20000, `${Math.round(png.length / 1024)} KB`)
+  // The image export was removed; the toolbar must no longer offer it.
+  const imgBtn = await page.locator('.toolbar .btn', { hasText: '导出图片' }).count()
+  check('导出图片按钮已移除', imgBtn === 0, `${imgBtn} 个`)
 
   check('无页面 JS 错误', errors.length === 0, errors.slice(0, 2).join(' | '))
 
