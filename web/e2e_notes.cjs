@@ -18,6 +18,8 @@ const check = (name, ok, extra = '') => {
   const page = await (await browser.newContext({ viewport: { width: 1400, height: 1000 }, locale: 'zh-CN' })).newPage()
   const errors = []
   page.on('pageerror', (e) => errors.push(e.message))
+  // The AI button asks before overwriting an existing draft; accept it.
+  page.on('dialog', (d) => d.accept())
 
   await gotoWithRetry(page, SITE, { timeout: 90000 })
   await page.waitForSelector('.kpis .kpi', { timeout: 90000 })
@@ -52,10 +54,15 @@ const check = (name, ok, extra = '') => {
   // --- type -> autosave ----------------------------------------------
   const TEXT = 'e2e 笔记：开盘一字板集中，情绪偏热。'
   await page.locator('.nb-input').click()
-  // 80ms between keys: at 15ms Chromium coalesces keystrokes and drops
-  // characters, which no human typing speed reproduces. fill() is unusable here
-  // because React's controlled input overwrites the DOM value with its own state.
-  await page.keyboard.type(TEXT, { delay: 80 })
+  // insertText fires one input event, exactly like pasting. Keyboard typing was
+  // unreliable here: Playwright's per-key dispatch races React's batched state
+  // update and silently drops leading characters under load, and fill() does not
+  // work at all on a controlled input.
+  await page.evaluate((t) => {
+    const el = document.querySelector('.nb-input')
+    el.focus()
+    document.execCommand('insertText', false, t)
+  }, TEXT)
   // 1.2s debounce + request; wait for the saved marker.
   await page.waitForFunction(
     () => (document.querySelector('.nb-meta')?.textContent || '').includes('已保存'),
@@ -84,12 +91,35 @@ const check = (name, ok, extra = '') => {
   }, day)
   check('服务端已持久化', server.content === TEXT, `${server.content?.length || 0} 字`)
 
+  // --- AI draft button -----------------------------------------------
+  // Mocked so the suite does not spend tokens or depend on model latency.
+  await page.route('**/api/note/draft', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ date: day, content: 'AI 生成的草稿：情绪偏热，主线集中在央国企改革。' }),
+    })
+  )
+  await page.locator('.nb-foot .btn', { hasText: 'AI 生成' }).click()
+  await page.waitForTimeout(2000)
+  const drafted = await page.locator('.nb-input').inputValue()
+  check('AI 生成填充输入框', drafted.includes('AI 生成的草稿'), drafted.slice(0, 30))
+
+  const serverDraft = await page.evaluate(async (d) => {
+    const r = await fetch('/api/note?date=' + encodeURIComponent(d))
+    return r.json()
+  }, day)
+  check('AI 草稿自动落库', (serverDraft.content || '').includes('AI 生成的草稿'), (serverDraft.content || '').length + ' 字')
+
   // --- clearing deletes ----------------------------------------------
-  await page.locator('.nb-input').click()
-  await page.keyboard.press('ControlOrMeta+a')
+  await page.evaluate(() => {
+    const el = document.querySelector('.nb-input')
+    el.focus()
+    el.select()
+  })
   await page.keyboard.press('Delete')
   await page.waitForTimeout(300)
-  await page.locator('.nb-foot .btn').click()
+  await page.locator('.nb-foot .btn', { hasText: '立即保存' }).click()
   await page.waitForTimeout(1500)
   const server2 = await page.evaluate(async (d) => {
     const r = await fetch(`/api/note?date=${d}`)
