@@ -3,7 +3,7 @@
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -94,6 +94,42 @@ if WEB_DIST.exists():
     def robots() -> FileResponse:
         f = WEB_DIST / "robots.txt"
         return FileResponse(f, headers=SHORT_CACHE) if f.exists() else FileResponse(WEB_DIST / "index.html", headers=NO_CACHE)
+
+    @app.get("/manifest.webmanifest")
+    def manifest() -> FileResponse:
+        f = WEB_DIST / "manifest.webmanifest"
+        if not f.exists():
+            raise HTTPException(status_code=404, detail="manifest not built")
+        return FileResponse(
+            f, media_type="application/manifest+json", headers=SHORT_CACHE
+        )
+
+    @app.get("/sw.js")
+    def service_worker() -> FileResponse:
+        """The worker script itself must always be revalidated.
+
+        A cached sw.js is never re-fetched, so a fixed worker would keep serving
+        an old strategy forever; no-cache makes the browser check on every load.
+        """
+        f = WEB_DIST / "sw.js"
+        if not f.exists():
+            raise HTTPException(status_code=404, detail="service worker not built")
+        return FileResponse(
+            f,
+            media_type="application/javascript",
+            headers={"Cache-Control": CACHE_REVALIDATE, "Service-Worker-Allowed": "/"},
+        )
+
+    @app.get("/icon-{size}.png")
+    def pwa_icon(size: str) -> FileResponse:
+        # Sizes are fixed build artifacts; reject anything else so the route
+        # cannot be used to read arbitrary files.
+        if size not in ("192", "512", "512-maskable"):
+            raise HTTPException(status_code=404, detail="no such icon")
+        f = WEB_DIST / f"icon-{size}.png"
+        if not f.exists():
+            raise HTTPException(status_code=404, detail="icon not built")
+        return FileResponse(f, media_type="image/png", headers=SHORT_CACHE)
 
     @app.get("/sitemap.xml")
     def sitemap() -> Response:
