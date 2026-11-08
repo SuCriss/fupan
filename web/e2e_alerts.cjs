@@ -10,7 +10,6 @@ const check = (name, ok, extra = '') => {
   if (!ok) failed += 1
 }
 
-// A watchlist row as the server returns it, with the fields the alert path reads.
 const row = (code, name, status, chg, boards = 0) => ({
   code, name, status, chg, price: 10, pre_close: 10, open: 10, high: 10, low: 10,
   turnover: 1, amount: 1e8, limitPct: 10, boards,
@@ -23,8 +22,10 @@ const row = (code, name, status, chg, boards = 0) => ({
     args: ['--no-sandbox', '--disable-dev-shm-usage'],
   })
 
-  // Capture notifications instead of showing them, and pre-grant permission.
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, locale: 'zh-CN' })
+  // Only the Notification shim goes in addInitScript: it must exist on every
+  // navigation. localStorage is seeded per case with evaluate(), because an init
+  // script would overwrite the state each case is trying to set up.
   await ctx.addInitScript(() => {
     window.__notes = []
     class FakeNotification {
@@ -34,22 +35,16 @@ const row = (code, name, status, chg, boards = 0) => ({
     }
     window.Notification = FakeNotification
   })
+
   const page = await ctx.newPage()
   const errors = []
   page.on('pageerror', (e) => errors.push(e.message))
 
-  // --- case 1: transition normal -> limitUp must alert -----------------
-  let rows = [row('002578', '闽发铝业', 'limitUp', 10.11, 5), row('600519', '贵州茅台', 'normal', 0.07)]
+  let rows = []
   await page.route('**/api/watch', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ts: Date.now(), list: rows }) })
   )
-  // Seed the "previous" state so this load looks like a real transition.
-  await ctx.addInitScript(() => {
-    localStorage.setItem('fupan_notify', '1')
-    localStorage.setItem('fupan_alert_state', JSON.stringify({ '002578': 'normal', '600519': 'normal' }))
-    // Alerts only run during a live session; force the market status.
-    window.__forceSession = true
-  })
+  // Alerts only run during a live session.
   await page.route('**/api/market', (route) =>
     route.fulfill({
       status: 200, contentType: 'application/json',
@@ -59,48 +54,59 @@ const row = (code, name, status, chg, boards = 0) => ({
 
   await gotoWithRetry(page, SITE, { timeout: 90000 })
   await page.waitForSelector('.kpis .kpi', { timeout: 90000 })
-  await page.waitForTimeout(2500)
 
-  const notes1 = await page.evaluate(() => window.__notes || [])
-  check('涨停跃迁触发通知', notes1.length === 1, `${notes1.length} 条`)
-  check('通知标题含股票名与状态', /闽发铝业.*涨停/.test(notes1[0]?.title || ''), notes1[0]?.title || '(无)')
-  check('通知正文含代码与连板', /002578/.test(notes1[0]?.body || '') && /5连板/.test(notes1[0]?.body || ''), notes1[0]?.body || '')
+  /** Seed storage, then reload so the alert effect runs against it. */
+  const seedAndReload = async ({ notify, alertState }) => {
+    await page.evaluate(({ notify, alertState }) => {
+      localStorage.setItem('fupan_notify', notify)
+      localStorage.setItem('fupan_alert_state', JSON.stringify(alertState))
+      window.__notes.length = 0
+    }, { notify, alertState })
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: 90000 })
+    await page.waitForSelector('.kpis .kpi', { timeout: 90000 })
+    await page.waitForTimeout(2500)
+    return page.evaluate(() => window.__notes || [])
+  }
 
-  const state1 = await page.evaluate(() => JSON.parse(localStorage.getItem('fupan_alert_state') || '{}'))
-  check('状态已更新为持久化值', state1['002578'] === 'limitUp', JSON.stringify(state1))
+  // --- case 1: normal -> limitUp -------------------------------------
+  rows = [row('002578', '闽发铝业', 'limitUp', 10.11, 5), row('600519', '贵州茅台', 'normal', 0.07)]
+  let notes = await seedAndReload({
+    notify: '1',
+    alertState: { '002578': 'normal', '600519': 'normal' },
+  })
+  check('涨停跃迁触发通知', notes.length === 1, `${notes.length} 条`)
+  check('标题含股票名与状态', /闽发铝业.*涨停/.test(notes[0]?.title || ''), notes[0]?.title || '(无)')
+  check('正文含代码与连板', /002578/.test(notes[0]?.body || '') && /5连板/.test(notes[0]?.body || ''), notes[0]?.body || '')
 
-  // --- case 2: no repeat alert when the state is unchanged -------------
-  await page.evaluate(() => { window.__notes.length = 0 })
-  await page.reload({ waitUntil: 'domcontentloaded', timeout: 90000 })
-  await page.waitForSelector('.kpis .kpi', { timeout: 90000 })
-  await page.waitForTimeout(2500)
-  const notes2 = await page.evaluate(() => window.__notes || [])
-  check('状态未变不重复通知', notes2.length === 0, `${notes2.length} 条`)
+  const st1 = await page.evaluate(() => JSON.parse(localStorage.getItem('fupan_alert_state') || '{}'))
+  check('状态已写回', st1['002578'] === 'limitUp', JSON.stringify(st1))
 
-  // --- case 3: 炸板 transition also alerts ----------------------------
+  // --- case 2: same state again -> silent ------------------------------
+  notes = await seedAndReload({
+    notify: '1',
+    alertState: { '002578': 'limitUp', '600519': 'normal' },
+  })
+  check('状态未变不重复通知', notes.length === 0, `${notes.length} 条`)
+
+  // --- case 3: limitUp -> broken --------------------------------------
   rows = [row('600892', '大晟文化', 'broken', -3.2), row('600519', '贵州茅台', 'normal', 0.07)]
-  await page.evaluate(() => {
-    localStorage.setItem('fupan_alert_state', JSON.stringify({ '600892': 'limitUp', '600519': 'normal' }))
-    window.__notes.length = 0
+  notes = await seedAndReload({
+    notify: '1',
+    alertState: { '600892': 'limitUp', '600519': 'normal' },
   })
-  await page.reload({ waitUntil: 'domcontentloaded', timeout: 90000 })
-  await page.waitForSelector('.kpis .kpi', { timeout: 90000 })
-  await page.waitForTimeout(2500)
-  const notes3 = await page.evaluate(() => window.__notes || [])
-  check('炸板跃迁触发通知', notes3.some((n) => /炸板/.test(n.title)), notes3.map((n) => n.title).join(' / ') || '(无)')
+  check('炸板跃迁触发通知', notes.some((n) => /炸板/.test(n.title)), notes.map((n) => n.title).join(' / ') || '(无)')
 
-  // --- case 4: alerts stay silent without the notification toggle -----
-  await page.evaluate(() => {
-    localStorage.setItem('fupan_notify', '0')
-    localStorage.setItem('fupan_alert_state', JSON.stringify({ '002578': 'normal' }))
-    window.__notes.length = 0
-  })
+  // --- case 4: toggle off -> silent -----------------------------------
   rows = [row('002578', '闽发铝业', 'limitUp', 10.11, 5)]
-  await page.reload({ waitUntil: 'domcontentloaded', timeout: 90000 })
-  await page.waitForSelector('.kpis .kpi', { timeout: 90000 })
-  await page.waitForTimeout(2500)
-  const notes4 = await page.evaluate(() => window.__notes || [])
-  check('关闭通知后不再提醒', notes4.length === 0, `${notes4.length} 条`)
+  notes = await seedAndReload({ notify: '0', alertState: { '002578': 'normal' } })
+  check('关闭通知后静默', notes.length === 0, `${notes.length} 条`)
+
+  // --- case 5: first run records state without alerting ---------------
+  rows = [row('002578', '闽发铝业', 'limitUp', 10.11, 5)]
+  notes = await seedAndReload({ notify: '1', alertState: {} })
+  check('首次运行只记录不通知', notes.length === 0, `${notes.length} 条`)
+  const st5 = await page.evaluate(() => JSON.parse(localStorage.getItem('fupan_alert_state') || '{}'))
+  check('首次运行已记录状态', st5['002578'] === 'limitUp', JSON.stringify(st5))
 
   check('无页面 JS 错误', errors.length === 0, errors.slice(0, 2).join(' | '))
 
