@@ -16,8 +16,13 @@ const COLS = {
     { k: 'latest', t: '现价', w: (s) => Number(s.latest || 0).toFixed(2) },
     { k: 'chg', t: '涨幅', w: (s) => <span className="u">{pct(s.chg)}</span> },
     { k: 'boards', t: '连板', w: (s) => s.daysText },
+    // First-seal time comes from the exchange feed; it shows when the money
+    // actually arrived, which the snapshot alone cannot tell.
+    { k: 'firstTime', t: '首封', w: (s) => <span className="ft">{s.firstTime || '--:--'}</span> },
+    { k: 'statText', t: '涨停统计', w: (s) => s.statText || '--' },
     { k: 'boardType', t: '板型', w: (s) => s.boardType || '--' },
     { k: 'sealAmt', t: '封单额', w: (s) => fmtAmt(s.sealAmt) },
+    { k: 'openNum', t: '炸板', w: (s) => (s.openNum ? `${s.openNum}次` : '—') },
     { k: 'turnover', t: '换手', w: (s) => `${Number(s.turnover || 0).toFixed(1)}%` },
     { k: 'floatCap', t: '流通市值', w: (s) => fmtAmt(s.floatCap) },
     { k: 'sector', t: '板块', w: (s) => (s.sector ? `${s.sector}×${s.sectorN}` : '--') },

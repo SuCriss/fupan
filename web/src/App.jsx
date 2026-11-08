@@ -16,6 +16,7 @@ import { ErrorBoundary } from './components/ErrorBoundary'
 import { Kpis, IndexBar, LeaderCards } from './components/Overview'
 import { DataTable, Ladder, HotList, Compare, Drawdown } from './components/Pools'
 import { WatchList } from './components/WatchList'
+import { TimeDist } from './components/TimeDist'
 
 // The drawer carries the charting code (K-line, minute chart), which is only
 // needed once a stock is opened. Keeping it out of the initial bundle speeds up
@@ -525,6 +526,11 @@ export default function App() {
           <div className="empty">加载中…</div>
         ) : tab === 'leaders' ? (
           <LeaderCards list={data.leaders} onOpen={openDetail} />
+        ) : tab === 'up' ? (
+          <>
+            <TimeDist rows={pools.up} />
+            <DataTable kind="up" rows={pools.up} query={query} onOpen={openDetail} />
+          </>
         ) : tab === 'sectors' ? (
           sectorSel ? (
             <SectorDetail

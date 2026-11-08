@@ -415,6 +415,33 @@ tbody tr:last-child td { border-bottom: none; }
 .sd-ladder { display: flex; flex-direction: column; gap: 8px; margin-bottom: 4px; }
 .bt { font-style: normal; font-size: 10px; color: var(--dim); margin-left: 6px; }
 
+/* ---------- first-seal time distribution ---------------------------- */
+.timedist {
+  margin: 0 22px 10px; padding: 11px 14px 6px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 11px;
+}
+.td-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+.td-title { font-size: 12px; font-weight: 700; color: #9fb0c4; letter-spacing: 1px; }
+.td-sub { font-size: 11px; color: var(--dim); }
+.td-sub b { color: var(--text); font-variant-numeric: tabular-nums; }
+.td-unk { font-style: normal; margin-left: 6px; opacity: .7; }
+.td-bars { display: flex; align-items: flex-end; gap: 4px; height: 96px; }
+.td-col {
+  flex: 1; display: flex; flex-direction: column; align-items: center;
+  justify-content: flex-end; height: 100%; gap: 3px;
+}
+.td-n { font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.td-bar {
+  width: 100%; border-radius: 3px 3px 0 0;
+  background: linear-gradient(180deg, #ff8a95, var(--up));
+  transition: height .2s;
+}
+.td-bar.empty { background: #1b2534; }
+.td-x {
+  font-size: 9.5px; color: var(--dim);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+
 /* ---------- hot ---------- */
 .hotrow {
   display: flex; align-items: center; gap: 14px; padding: 11px 15px;
