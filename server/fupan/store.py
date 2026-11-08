@@ -14,7 +14,7 @@ import time
 from datetime import datetime
 from typing import Any
 
-from . import analysis, concepts, config as cfg, fetch, history, klcache, llm
+from . import analysis, concepts, config as cfg, fetch, history, klcache, llm, ztpool
 
 log = logging.getLogger("fupan.store")
 
@@ -387,6 +387,22 @@ def build_snapshot(force: bool = False) -> dict[str, Any]:
                 r["sealRatio"] = 0.0
                 r["openNum"] = 0
                 r["firstTime"] = "--:--"
+
+        # Enrich with the exchange's own pool feed before scoring: the real sealed
+        # value feeds the score, and first-seal time / break count cannot be
+        # derived from the snapshot at all. A failure here keeps the estimates.
+        try:
+            zt = ztpool.fetch_pools(today.replace("-", ""))
+            if zt.get("up"):
+                hit = ztpool.apply(up, zt["up"])
+                log.info(
+                    "ztpool: enriched %s/%s limit-up rows (qdate=%s)",
+                    hit, len(up), zt.get("date") or "?",
+                )
+            if zt.get("down"):
+                ztpool.apply(pools["dt"], zt["down"])
+        except Exception as exc:
+            log.warning("ztpool enrichment skipped: %s", exc)
 
         prev = prev_board_map(_prev_trading_day(today))
         prev_date = _prev_trading_day(today)
