@@ -8,6 +8,8 @@ import {
   getSentiment,
   getSectors,
   getWatch,
+  getAuthStatus,
+  logout,
 } from './lib/api'
 import {
   readPref,
@@ -28,6 +30,7 @@ import { WatchList } from './components/WatchList'
 import { TimeDist } from './components/TimeDist'
 import { LhbBoard } from './components/Lhb'
 import { NoteBox } from './components/Notes'
+import { Login } from './components/Login'
 
 // The drawer carries the charting code (K-line, minute chart), which is only
 // needed once a stock is opened. Keeping it out of the initial bundle speeds up
@@ -91,6 +94,8 @@ export default function App() {
   const [nextAt, setNextAt] = useState(0)
   const [notifyOn, setNotifyOn] = useState(() => readPref('fupan_notify') === '1')
   const [exporting, setExporting] = useState(false)
+  // null = still checking; {enabled, authenticated} afterwards.
+  const [auth, setAuth] = useState(null)
   const busyRef = useRef(false)
   // Newest request that arrived while one was in flight (coalesced, not queued).
   const pendingRef = useRef(null)
@@ -154,6 +159,12 @@ export default function App() {
       if (force) loadTrend()
       if (silent) notifyUpdated(j)
     } catch (e) {
+      // A 401 means the session expired or was never established; drop straight
+      // back to the login screen instead of showing a load error.
+      if (e.status === 401) {
+        setAuth({ enabled: true, authenticated: false })
+        return
+      }
       if (silent) {
         // A background refresh must never blank out data the user is reading.
         setStampBusy('自动刷新失败')
@@ -244,6 +255,15 @@ export default function App() {
       ? `${s.date} A股涨停复盘 - 涨停${s.upCount ?? 0}家·最高${s.maxBoard ?? 0}板`
       : DEFAULT_TITLE
   }, [data])
+
+  // Ask once whether a gate is configured and whether this browser already has a
+  // valid session. A failure here means the gate could not be reached at all, so
+  // fall through to the app and let the normal error surface handle it.
+  useEffect(() => {
+    getAuthStatus()
+      .then(setAuth)
+      .catch(() => setAuth({ enabled: false, authenticated: true }))
+  }, [])
 
   const openDetail = useCallback((code) => setDetailCode(code), [])
 
@@ -429,6 +449,21 @@ export default function App() {
     return () => { document.body.style.overflow = '' }
   }, [detailCode])
 
+  // Gate everything below on the session. Rendered after the hooks so the hook
+  // order stays stable across the login transition.
+  if (auth === null) return <div className="boot-screen">加载中…</div>
+  if (auth.enabled && !auth.authenticated) {
+    return (
+      <Login
+        onSuccess={() => {
+          setAuth({ enabled: true, authenticated: true })
+          load()
+          loadTrend()
+        }}
+      />
+    )
+  }
+
   return (
     <>
       <header className="topbar">
@@ -488,6 +523,19 @@ export default function App() {
             )}
             {stampBusy && <em className="stamp-busy">{stampBusy}</em>}
           </span>
+          {auth?.enabled && (
+            <button
+              className="btn sm logout-btn"
+              onClick={async () => {
+                try { await logout() } catch { /* clearing locally is enough */ }
+                setAuth({ enabled: true, authenticated: false })
+                setData(null)
+              }}
+              title="退出登录"
+            >
+              退出
+            </button>
+          )}
         </div>
       </header>
 

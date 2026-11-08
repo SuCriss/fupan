@@ -7,9 +7,10 @@ import sqlite3
 import time
 from typing import Any
 
-from fastapi import APIRouter, Body, HTTPException, Query, Response
+from fastapi import APIRouter, Body, HTTPException, Query, Request, Response
+from fastapi.responses import JSONResponse
 
-from .. import analysis, concepts, config as cfg, detail, extra, fetch, indicators, llm, sentiment, store
+from .. import analysis, auth, concepts, config as cfg, detail, extra, fetch, indicators, llm, sentiment, store
 
 router = APIRouter(prefix="/api", tags=["fupan"])
 
@@ -165,6 +166,62 @@ def api_sentiment(days: int = Query(30, ge=1, le=120)) -> dict[str, Any]:
             }
         )
     return {"list": series}
+
+
+@router.get("/auth/status")
+def api_auth_status(request: Request) -> dict[str, Any]:
+    """Whether a gate is configured, and whether this client is already past it.
+
+    Always reachable so the SPA can decide between the login screen and the app.
+    """
+    return {
+        **auth.status(),
+        "authenticated": auth.verify_token(request.cookies.get(auth.COOKIE_NAME)),
+    }
+
+
+@router.post("/login")
+def api_login(request: Request, payload: dict = Body(...)):
+    if not auth.enabled():
+        raise HTTPException(status_code=400, detail="未启用登录：服务端未设置 FUPAN_PASSWORD")
+
+    ip = auth.client_ip(
+        dict(request.headers),
+        request.client.host if request.client else "",
+    )
+    if auth.is_locked(ip):
+        raise HTTPException(status_code=429, detail="尝试次数过多，请 15 分钟后再试")
+
+    if not auth.check_password(str(payload.get("password") or "")):
+        auth.record_failure(ip)
+        raise HTTPException(status_code=401, detail="密码错误")
+
+    auth.clear_failures(ip)
+    token = auth.issue_token()
+    resp = JSONResponse({"ok": True, "days": auth.session_days()})
+    # Secure only when the request actually arrived over TLS: a local http probe
+    # would otherwise never receive the cookie.
+    secure = (
+        request.url.scheme == "https"
+        or request.headers.get("x-forwarded-proto") == "https"
+    )
+    resp.set_cookie(
+        auth.COOKIE_NAME,
+        token,
+        max_age=auth.session_days() * 86400,
+        httponly=True,
+        secure=secure,
+        samesite="lax",
+        path="/",
+    )
+    return resp
+
+
+@router.post("/logout")
+def api_logout() -> JSONResponse:
+    resp = JSONResponse({"ok": True})
+    resp.delete_cookie(auth.COOKIE_NAME, path="/")
+    return resp
 
 
 @router.get("/note")

@@ -5,10 +5,10 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import config as cfg, store
+from . import auth, config as cfg, store
 from .routers import api
 
 logging.basicConfig(
@@ -58,6 +58,52 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Reachable without a session: the login flow itself, the health probe (so an
+# uptime monitor keeps working), and the assets the login screen needs to render.
+_PUBLIC_PATHS = {
+    "/",
+    "/api/login",
+    "/api/logout",
+    "/api/auth/status",
+    "/api/health",
+    "/favicon.svg",
+    "/robots.txt",
+    "/sitemap.xml",
+    "/manifest.webmanifest",
+    "/sw.js",
+}
+_PUBLIC_PREFIXES = ("/assets/", "/icon-")
+
+
+@app.middleware("http")
+async def _auth_gate(request, call_next):
+    """Require a session for everything except the login surface.
+
+    Unauthenticated API calls get a 401 so the SPA can react, while page requests
+    still receive index.html — the app decides whether to show the login screen,
+    which keeps deep links like /?date=2026-11-06 working after sign-in.
+    """
+    if not auth.enabled():
+        return await call_next(request)
+
+    path = request.url.path
+    if (
+        request.method == "OPTIONS"
+        or path in _PUBLIC_PATHS
+        or path.startswith(_PUBLIC_PREFIXES)
+    ):
+        return await call_next(request)
+
+    if auth.verify_token(request.cookies.get(auth.COOKIE_NAME)):
+        return await call_next(request)
+
+    if path.startswith("/api/"):
+        return JSONResponse({"detail": "未登录", "authRequired": True}, status_code=401)
+    index = WEB_DIST / "index.html"
+    if index.exists():
+        return FileResponse(index, headers=NO_CACHE)
+    return JSONResponse({"detail": "未登录"}, status_code=401)
 
 
 @app.middleware("http")

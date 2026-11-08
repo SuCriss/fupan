@@ -13,10 +13,22 @@ async function request(path, options = {}) {
     } catch {
       /* non-JSON error body */
     }
-    throw new Error(detail)
+    const err = new Error(detail)
+    // The caller distinguishes "session expired" from a normal failure so it can
+    // show the login screen instead of an error banner.
+    err.status = res.status
+    throw err
   }
   return res.json()
 }
+
+/** Whether a password gate is configured and whether this browser is past it. */
+export const getAuthStatus = () => request('/api/auth/status')
+
+export const login = (password) =>
+  request('/api/login', { method: 'POST', body: JSON.stringify({ password }) })
+
+export const logout = () => request('/api/logout', { method: 'POST' })
 
 export const getReview = (date = '') =>
   request(`/api/all?date=${encodeURIComponent(date)}`)
