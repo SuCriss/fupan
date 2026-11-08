@@ -19,7 +19,19 @@ const COLS = {
     // First-seal time comes from the exchange feed; it shows when the money
     // actually arrived, which the snapshot alone cannot tell.
     { k: 'firstTime', t: '首封', w: (s) => <span className="ft">{s.firstTime || '--:--'}</span> },
-    { k: 'statText', t: '涨停统计', w: (s) => s.statText || '--' },
+    {
+      k: 'statText',
+      t: '区间涨停',
+      // Deliberately not labelled "连板": the exchange counts limit-ups inside a
+      // fixed window (10 days), while our 连板 column counts consecutive boards.
+      // Showing both without saying so reads as a contradiction (5板 vs 6板).
+      w: (s) =>
+        s.statText ? (
+          <span title="近10个交易日累计涨停次数（交易所口径，与「连板」的连续计数窗口不同）">
+            {s.statText}
+          </span>
+        ) : '--',
+    },
     { k: 'boardType', t: '板型', w: (s) => s.boardType || '--' },
     { k: 'sealAmt', t: '封单额', w: (s) => fmtAmt(s.sealAmt) },
     { k: 'openNum', t: '炸板', w: (s) => (s.openNum ? `${s.openNum}次` : '—') },
