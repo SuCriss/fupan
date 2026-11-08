@@ -596,6 +596,10 @@ def _clean_note(text: str) -> str:
         line = raw.strip()
         if not line:
             if out_lines and out_lines[-1] != "":
+                # Keep a heading glued to its body so it forms one paragraph; a
+                # blank line there would later read as a heading with no content.
+                if re.fullmatch(r"[一二三四五六七八九十]+、.*", out_lines[-1].strip()):
+                    continue
                 out_lines.append("")
             continue
         # Table rows: a pipe-delimited layout cannot survive as plain note text.
@@ -645,16 +649,25 @@ def _clean_note(text: str) -> str:
         result = "\n\n".join(kept).strip() if kept else result
 
     paras = [p for p in result.split("\n\n") if p.strip()]
-    while paras:
-        last = paras[-1].strip()
-        # Drop a heading with no body, or a paragraph that does not end a sentence.
-        if re.fullmatch(r"[一二三四五六七八九十]+、.*", last):
-            paras.pop()
-            continue
-        if len(paras) > 1 and not last.endswith(("。", "！", "；", "…")):
-            paras.pop()
-            continue
-        break
+
+    def is_heading(s: str) -> bool:
+        return bool(re.fullmatch(r"[一二三四五六七八九十]+、.*", s.strip()))
+
+    # Drop every heading whose body was filtered out — not just a trailing one,
+    # since a section can lose its lines while later sections survive.
+    kept_paras: list[str] = []
+    for i, para in enumerate(paras):
+        if is_heading(para):
+            nxt = paras[i + 1] if i + 1 < len(paras) else None
+            if nxt is None or is_heading(nxt):
+                continue
+        kept_paras.append(para)
+    paras = kept_paras
+
+    # Also drop a trailing paragraph that stops mid-sentence.
+    while len(paras) > 1 and not paras[-1].strip().endswith(("。", "！", "；", "…")):
+        paras.pop()
+
     return "\n\n".join(paras).strip()
 
 
