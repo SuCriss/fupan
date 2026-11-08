@@ -514,20 +514,30 @@ def pending(code: str, trade_date: str) -> bool:
 # ---------------------------------------------------------------------------
 NOTE_SYSTEM = (
     "你是A股短线复盘助手。根据给定的当日市场数据，写一段复盘笔记草稿。\n"
-    "硬性要求：\n"
-    "1) 200-350 字，分 3 段，每段一个主题，段与段之间空一行；\n"
-    "2) 用交易者写给自己的口吻客观记录，不要标题、不要 markdown 符号、不要项目符号；\n"
-    "3) 只引用给定数据，严禁编造新闻、研报、传闻或未给出的数字；\n"
-    "4) 数据不足以支撑判断时直接写明「暂无明确主线」，不要推测；\n"
-    "5) 严禁任何操作建议与预测性表述（买入、卖出、持有、追高、抄底、止损、止盈、"
-    "目标价、建议关注、明日必涨等），只做客观记录与观察项列举。\n"
+    "输出格式（必须严格遵守）：\n"
+    "1) 纯段落文本，200-350 字，2-3 段，段与段之间空一行；\n"
+    "2) 禁止表格、列表符号（-、*、1.）、标题、加粗或任何 markdown 标记；\n"
+    "3) 禁止向用户提问或提议后续动作（如「需要我…」「是否要…」「要我…吗」）；\n"
+    "4) 禁止评论数据来源、评分规则、指标口径或系统本身；\n"
+    "5) 只引用给定数据，严禁编造新闻、研报、传闻或未给出的数字；"
+    "数据不足时直接写「暂无明确主线」；\n"
+    "6) 严禁任何操作建议与预测（买入、卖出、持有、追高、抄底、止损、止盈、"
+    "目标价、仓位、主攻、不追、做最强、做扩散、建议关注、明日必涨等）。\n"
     "内容顺序：今日情绪与赚钱效应 → 主线与龙头结构 → 明日需要盯的客观观察项。"
 )
 
 # Same chatter filter as the attribution path, plus note-specific phrases.
 _NOTE_META = re.compile(
     r"本对话|你指的|请把原文|贴一下|我再对齐|我看不到|上述三行|上述格式|"
-    r"作为(?:AI|人工智能)|我无法|请提供|如果你需要|以下是|根据您提供的"
+    r"作为(?:AI|人工智能)|我无法|请提供|如果你需要|以下是|根据您提供的|"
+    r"需要我|要不要我|是否要|要我|如需|可以帮你|建议核对|建议确认"
+)
+
+# Anything that reads as trading instruction rather than observation.
+_NOTE_ADVICE = re.compile(
+    r"买入|卖出|持有|追高|抄底|加仓|减仓|建仓|清仓|止损|止盈|目标价|建议关注|"
+    r"可考虑|介入|看涨|看跌|明日必涨|重点参与|仓位|主攻|不追|只跟|做最强|做扩散|"
+    r"参与不了|接力资金|值得参与|可以上|不宜参与"
 )
 
 
@@ -574,35 +584,62 @@ def _build_note_facts(payload: dict[str, Any]) -> str:
 
 
 def _clean_note(text: str) -> str:
-    """Strip markdown noise and any advisory sentence the prompt forbade."""
+    """Strip markdown, tables and anything advisory from a note draft.
+
+    The prompt forbids all of these, but the model reliably drifts into tables and
+    closing questions, so the output is filtered rather than trusted.
+    """
     out_lines: list[str] = []
-    advice = re.compile(
-        r"买入|卖出|持有|追高|抄底|加仓|减仓|建仓|清仓|止损|止盈|目标价|建议关注|"
-        r"可考虑|介入|看涨|看跌|明日必涨|重点参与"
-    )
     for raw in (text or "").split("\n"):
         line = raw.strip()
         if not line:
             if out_lines and out_lines[-1] != "":
                 out_lines.append("")
             continue
-        # Drop markdown bullets/headings and inline emphasis.
+        # Table rows: a pipe-delimited layout cannot survive as plain note text.
+        if line.startswith("|") or line.count("|") >= 2:
+            continue
+        # Markdown bullets, numbering and emphasis.
         line = re.sub(r"^[#>*\-•·]+\s*", "", line)
+        line = re.sub(r"^\d+[.、)]\s*", "", line)
         line = line.replace("**", "").replace("`", "")
-        # The model likes to open with a bracketed title even though the note is
-        # already shown under its date; that line adds nothing.
+        # A bracketed title adds nothing; the note already sits under its date.
         if re.fullmatch(r"【[^】]*】", line):
+            continue
+        # Same for a free-form title line such as "2026-11-08 复盘笔记（草稿）".
+        if "复盘笔记" in line and ("草稿" in line or len(line) <= 24):
             continue
         if _NOTE_META.search(line):
             continue
-        if advice.search(line):
+        if _NOTE_ADVICE.search(line):
+            continue
+        # Closing offers to keep helping ("需要我压缩成…吗？").
+        if line.rstrip().endswith(("？", "?")):
             continue
         if line:
             out_lines.append(line)
-    # Trim trailing blank lines.
+
     while out_lines and out_lines[-1] == "":
         out_lines.pop()
-    return "\n".join(out_lines)
+    # A section heading left with no body (its content was filtered out) is noise.
+    while out_lines and re.fullmatch(r"[一二三四五六七八九十]+、.*", out_lines[-1]):
+        out_lines.pop()
+        while out_lines and out_lines[-1] == "":
+            out_lines.pop()
+
+    result = "\n".join(out_lines).strip()
+    # Hard cap: the prompt asks for 200-350 chars, but a reasoning model can still
+    # produce an essay. Keep whole paragraphs so the cut never lands mid-sentence.
+    if len(result) > 600:
+        kept: list[str] = []
+        total = 0
+        for para in result.split("\n\n"):
+            if total + len(para) > 550:
+                break
+            kept.append(para)
+            total += len(para)
+        result = "\n\n".join(kept).strip() if kept else result[:550]
+    return result
 
 
 def generate_note(payload: dict[str, Any]) -> str | None:
