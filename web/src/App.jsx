@@ -19,6 +19,7 @@ import { DataTable, Ladder, HotList, Compare, Drawdown } from './components/Pool
 import { WatchList } from './components/WatchList'
 import { TimeDist } from './components/TimeDist'
 import { LhbBoard } from './components/Lhb'
+import { NoteBox } from './components/Notes'
 
 // The drawer carries the charting code (K-line, minute chart), which is only
 // needed once a stock is opened. Keeping it out of the initial bundle speeds up
@@ -461,6 +462,8 @@ export default function App() {
           date={stats?.date || ''}
         />
       )}
+
+      <NoteBox date={stats?.date || ''} />
 
       {stats?.sectors?.length > 0 && (
         <section className="sectors">

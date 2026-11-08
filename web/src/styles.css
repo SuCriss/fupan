@@ -112,6 +112,37 @@ input { font-family: inherit; }
 }
 .tbl-count { font-size: 11.5px; color: var(--dim); font-variant-numeric: tabular-nums; }
 .tbl-tools .btn { margin-left: auto; }
+
+/* ---------- review notes -------------------------------------------- */
+.notebox {
+  margin: 0 22px 10px; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 11px; overflow: hidden;
+}
+.nb-head {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  background: none; border: none; padding: 10px 14px;
+  color: var(--text); text-align: left;
+}
+.nb-head:hover { background: rgba(255,255,255,.02); }
+.nb-title { font-size: 12px; font-weight: 700; color: #9fb0c4; letter-spacing: 1px; }
+.nb-meta { font-size: 11px; color: var(--dim); }
+.nb-chevron { margin-left: auto; font-size: 11px; color: var(--dim); }
+.nb-body { padding: 0 14px 12px; }
+.nb-input {
+  width: 100%; box-sizing: border-box; resize: vertical;
+  background: var(--panel2); border: 1px solid var(--line2); border-radius: 8px;
+  color: var(--text); font-size: 12.5px; line-height: 1.7;
+  padding: 10px 12px; outline: none; font-family: inherit;
+}
+.nb-input:focus { border-color: var(--blue); }
+.nb-input::placeholder { color: #4d5c70; }
+.nb-foot { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.nb-hint { font-size: 10.5px; color: var(--dim); }
+.nb-foot .btn { margin-left: auto; }
+
+@media (max-width: 720px) {
+  .notebox { margin-left: 12px; margin-right: 12px; }
+}
 /* Data-freshness readout: a tier dot plus "MM-DD HH:MM 更新 · N 分钟前". */
 .stamp {
   display: inline-flex; align-items: center; gap: 5px;

@@ -113,6 +113,15 @@ def init_db() -> None:
                )"""
         )
         c.execute("CREATE INDEX IF NOT EXISTS idx_universe_name ON universe(name)")
+        # Free-form review notes, one per trading day. Kept beside the snapshot
+        # so revisiting an archive day also shows what was written that day.
+        c.execute(
+            """CREATE TABLE IF NOT EXISTS notes (
+                   date TEXT PRIMARY KEY,
+                   content TEXT NOT NULL,
+                   updated_at INTEGER NOT NULL
+               )"""
+        )
     klcache.init()
     history.init()
     llm.init()
@@ -224,6 +233,46 @@ def search_universe(term: str, limit: int = 12) -> list[dict[str, Any]]:
 def universe_size() -> int:
     with _conn() as c:
         return c.execute("SELECT COUNT(*) AS n FROM universe").fetchone()["n"]
+
+
+# ---------------------------------------------------------------------------
+# Review notes
+# ---------------------------------------------------------------------------
+def get_note(date_str: str) -> dict[str, Any]:
+    """One day's note; an absent note is an empty one, not an error."""
+    with _conn() as c:
+        row = c.execute(
+            "SELECT content, updated_at FROM notes WHERE date=?", (date_str,)
+        ).fetchone()
+    if not row:
+        return {"date": date_str, "content": "", "updatedAt": None}
+    return {"date": date_str, "content": row["content"], "updatedAt": row["updated_at"]}
+
+
+def save_note(date_str: str, content: str) -> dict[str, Any]:
+    """Upsert a day's note; blank content deletes it."""
+    text = (content or "").strip()
+    now = int(time.time())
+    with _conn() as c:
+        if not text:
+            c.execute("DELETE FROM notes WHERE date=?", (date_str,))
+            return {"date": date_str, "content": "", "updatedAt": None}
+        c.execute(
+            "INSERT INTO notes(date, content, updated_at) VALUES (?,?,?)"
+            " ON CONFLICT(date) DO UPDATE SET content=excluded.content,"
+            " updated_at=excluded.updated_at",
+            (date_str, text, now),
+        )
+    return {"date": date_str, "content": text, "updatedAt": now}
+
+
+def note_dates(limit: int = 400) -> list[str]:
+    """Dates that already have a note, newest first (for a quick index)."""
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT date FROM notes ORDER BY date DESC LIMIT ?", (limit,)
+        ).fetchall()
+    return [r["date"] for r in rows]
 
 
 def prev_board_map(date_str: str) -> dict[str, int]:

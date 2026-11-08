@@ -54,6 +54,19 @@ export const getSectors = (limit = 24) =>
 export const getLhb = (date = '') =>
   request(`/api/lhb${date ? `?date=${encodeURIComponent(date)}` : ''}`)
 
+/** Review note for one trading day. */
+export const getNote = (date = '') =>
+  request(`/api/note${date ? `?date=${encodeURIComponent(date)}` : ''}`)
+
+export const saveNote = (date, content) =>
+  request('/api/note', {
+    method: 'PUT',
+    body: JSON.stringify({ date, content }),
+  })
+
+/** Dates that already have a note. */
+export const getNoteDates = () => request('/api/note/dates')
+
 export const getWatch = (codes = '') =>
   request(`/api/watch${codes ? `?codes=${encodeURIComponent(codes)}` : ''}`)
 

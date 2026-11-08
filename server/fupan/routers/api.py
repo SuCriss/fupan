@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
+import re
 import sqlite3
 import time
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query, Response
+from fastapi import APIRouter, Body, HTTPException, Query, Response
 
 from .. import analysis, concepts, config as cfg, detail, extra, fetch, indicators, llm, sentiment, store
 
 router = APIRouter(prefix="/api", tags=["fupan"])
+
+# Any date reaching the notes table must be a plain YYYY-MM-DD, so a crafted
+# value cannot become a key that never matches an archive day.
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 def _with_sentiment(doc: dict[str, Any]) -> dict[str, Any]:
@@ -160,6 +165,31 @@ def api_sentiment(days: int = Query(30, ge=1, le=120)) -> dict[str, Any]:
             }
         )
     return {"list": series}
+
+
+@router.get("/note")
+def api_get_note(date: str = Query("", description="YYYY-MM-DD; empty = today")) -> dict[str, Any]:
+    """One trading day's review note (empty when none written)."""
+    day = date.strip() or cfg.cn_today()
+    if not _DATE_RE.fullmatch(day):
+        raise HTTPException(status_code=400, detail="date 必须是 YYYY-MM-DD")
+    return store.get_note(day)
+
+
+@router.put("/note")
+def api_save_note(payload: dict = Body(...)) -> dict[str, Any]:
+    """Save a day's note; blank content clears it."""
+    day = str(payload.get("date") or "").strip()
+    content = str(payload.get("content") or "")
+    if not _DATE_RE.fullmatch(day):
+        raise HTTPException(status_code=400, detail="date 必须是 YYYY-MM-DD")
+    return store.save_note(day, content)
+
+
+@router.get("/note/dates")
+def api_note_dates() -> dict[str, Any]:
+    """Dates that already have a note, newest first."""
+    return {"dates": store.note_dates(400)}
 
 
 @router.get("/lhb")
