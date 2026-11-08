@@ -351,8 +351,14 @@ def _sanitize(text: str) -> str:
     return out
 
 
-def _chat(system: str, user: str, max_tokens: int = 1200, temperature: float = 0.3) -> str:
-    """One OpenAI-compatible chat call. Raises on transport/HTTP failure."""
+def _chat(system: str, user: str, max_tokens: int = 3000, temperature: float = 0.3) -> str:
+    """One OpenAI-compatible chat call. Raises on transport/HTTP failure.
+
+    ``max_tokens`` must cover the model's *thinking* as well as its answer: the
+    configured model emits a ``reasoning_content`` block first, and a budget sized
+    for the answer alone gets consumed by that block, leaving a truncated reply
+    with ``finish_reason: "length"``.
+    """
     base = os.environ["FUPAN_LLM_BASE_URL"].rstrip("/")
     key = os.environ["FUPAN_LLM_API_KEY"]
     model = os.environ.get("FUPAN_LLM_MODEL", "gpt-4o-mini")
@@ -383,7 +389,19 @@ def _chat(system: str, user: str, max_tokens: int = 1200, temperature: float = 0
     )
     with urllib.request.urlopen(req, timeout=timeout) as r:
         payload = json.loads(r.read().decode("utf-8", "replace"))
-    return (payload.get("choices") or [{}])[0].get("message", {}).get("content", "").strip()
+
+    choice = (payload.get("choices") or [{}])[0]
+    content = (choice.get("message") or {}).get("content") or ""
+    finish = choice.get("finish_reason")
+    if finish == "length":
+        usage = payload.get("usage") or {}
+        log.warning(
+            "LLM output truncated (finish_reason=length, max_tokens=%s, "
+            "reasoning_tokens=%s) — raise the budget",
+            max_tokens,
+            (usage.get("completion_tokens_details") or {}).get("reasoning_tokens"),
+        )
+    return content.strip()
 
 
 def _call_llm(facts: str, limit_up: bool = True) -> str:
@@ -571,6 +589,10 @@ def _clean_note(text: str) -> str:
         # Drop markdown bullets/headings and inline emphasis.
         line = re.sub(r"^[#>*\-•·]+\s*", "", line)
         line = line.replace("**", "").replace("`", "")
+        # The model likes to open with a bracketed title even though the note is
+        # already shown under its date; that line adds nothing.
+        if re.fullmatch(r"【[^】]*】", line):
+            continue
         if _NOTE_META.search(line):
             continue
         if advice.search(line):
@@ -592,7 +614,9 @@ def generate_note(payload: dict[str, Any]) -> str | None:
         raw = _chat(
             NOTE_SYSTEM,
             "请为下面这个交易日写一段复盘笔记草稿：\n\n" + facts,
-            max_tokens=900,
+            # Generous: the model spends most of the budget on its thinking block
+            # before writing the note itself.
+            max_tokens=4000,
             temperature=0.5,
         )
     except urllib.error.HTTPError as exc:
@@ -604,4 +628,9 @@ def generate_note(payload: dict[str, Any]) -> str | None:
         return None
 
     cleaned = _clean_note(raw)
-    return cleaned or None
+    # A note shorter than this means the reply was cut off or refused; returning
+    # it would silently save a fragment as if it were a finished draft.
+    if not cleaned or len(cleaned) < 80:
+        log.warning("note draft too short after cleaning (%s chars)", len(cleaned or ""))
+        return None
+    return cleaned
