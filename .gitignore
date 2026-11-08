@@ -14,3 +14,7 @@ web/*.png
 
 # runtime database backups (contain full snapshot history)
 backup/
+
+# .env backups written by _deploy/set_password.sh (contain the password)
+server/.env.bak-*
+.env.bak-*
