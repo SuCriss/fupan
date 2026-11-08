@@ -7,8 +7,16 @@ import {
   getDates,
   getSentiment,
   getSectors,
+  getWatch,
 } from './lib/api'
-import { readPref, writePref, notifyUpdated } from './lib/prefs'
+import {
+  readPref,
+  writePref,
+  notifyUpdated,
+  notifyAlerts,
+  readAlertState,
+  writeAlertState,
+} from './lib/prefs'
 import { exportSummaryPng } from './lib/export'
 import StockSearch from './components/StockSearch'
 import { SentimentPanel } from './components/Sentiment'
@@ -299,6 +307,35 @@ export default function App() {
     return () => document.removeEventListener('visibilitychange', onVis)
   }, [autoActive, nextAt, date, load])
 
+  // --- watchlist limit alerts ----------------------------------------------
+  // Compare each name's limit state with the previous check and notify on a
+  // transition into 涨停/跌停/炸板. Runs at most once a minute.
+  const lastAlertCheck = useRef(0)
+  useEffect(() => {
+    if (!data || !notifyOn || !inSession) return
+    const now = Date.now()
+    if (now - lastAlertCheck.current < 60000) return
+    lastAlertCheck.current = now
+    getWatch()
+      .then((r) => {
+        const list = r.list || []
+        if (!list.length) return
+        const prev = readAlertState()
+        const next = {}
+        const changes = []
+        for (const s of list) {
+          next[s.code] = s.status
+          const was = prev[s.code]
+          // The first run only records state, so opening the page does not
+          // fire a burst of alerts for whatever is already at the limit.
+          if (was && was !== s.status && s.status !== 'normal') changes.push(s)
+        }
+        writeAlertState(next)
+        if (changes.length) notifyAlerts(changes)
+      })
+      .catch(() => { /* alerts are optional */ })
+  }, [data, notifyOn, inSession])
+
   // Keep the relative age honest without re-rendering on every tick.
   useEffect(() => {
     const t = setInterval(() => setNowMs(Date.now()), 30000)
@@ -533,7 +570,7 @@ export default function App() {
             className={`ar-bell${notifyOn ? ' on' : ''}`}
             onClick={toggleNotify}
             aria-pressed={notifyOn}
-            title={notifyOn ? '关闭更新通知' : '开启更新通知（标签页在后台时提醒）'}
+            title={notifyOn ? '关闭通知' : '开启通知：自选股涨停/跌停/炸板提醒 + 后台刷新提示'}
           >
             {notifyOn ? '🔔' : '🔕'}
           </button>

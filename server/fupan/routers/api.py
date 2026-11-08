@@ -262,14 +262,54 @@ def api_market() -> dict[str, Any]:
 
 @router.get("/watch")
 def api_watch(codes: str = Query("", description="comma-separated codes")) -> dict[str, Any]:
-    """Quotes for the watchlist, or for an explicit code list."""
+    """Quotes for the watchlist, or for an explicit code list.
+
+    Each row carries its limit state (limitUp / limitDown / broken / normal) so the
+    client can raise an alert on a transition without re-deriving the board's own
+    limit — ST is 5% while ChiNext/STAR are 20%.
+    """
     if codes.strip():
         wanted = [c.strip() for c in codes.split(",") if c.strip()]
     else:
         with store._conn() as c:  # noqa: SLF001 - single-owner module
             wanted = [r["code"] for r in c.execute("SELECT code FROM watchlist ORDER BY added_at")]
     quotes = fetch.fetch_quotes(wanted) if wanted else {}
-    return {"ts": fetch.now_ts(), "list": list(quotes.values())}
+
+    # Pool rows supply the board count for names that are currently limit-up.
+    snap = store.cached_snapshot() or {}
+    pool_rows: dict[str, dict[str, Any]] = {}
+    for group in (snap.get("pools") or {}).values():
+        for r in group or []:
+            pool_rows.setdefault(r.get("code"), r)
+
+    tol = cfg.SEALED_TOLERANCE
+    out: list[dict[str, Any]] = []
+    for q in quotes.values():
+        limit = analysis.limit_pct(q["code"], q["name"])
+        chg = float(q.get("chg") or 0)
+        high = float(q.get("high") or 0)
+        pre = float(q.get("pre_close") or 0)
+        high_chg = ((high - pre) / pre * 100) if pre else 0.0
+
+        if chg >= limit - tol:
+            status = "limitUp"
+        elif chg <= -(limit - tol):
+            status = "limitDown"
+        elif high_chg >= limit - tol:
+            # Touched the ceiling but is not sealed now.
+            status = "broken"
+        else:
+            status = "normal"
+
+        row = dict(q)
+        row["limitPct"] = limit
+        row["status"] = status
+        hit = pool_rows.get(q["code"])
+        if hit:
+            row["boards"] = hit.get("boards", 0)
+            row["daysText"] = hit.get("daysText")
+        out.append(row)
+    return {"ts": fetch.now_ts(), "list": out}
 
 
 @router.post("/watch/{code}")
