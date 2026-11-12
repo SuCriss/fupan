@@ -129,9 +129,23 @@ def api_all(date: str = Query("", description="YYYYMMDD or YYYY-MM-DD; empty = l
         snap["refreshing"] = state["running"]
         return _with_sentiment(snap)
 
-    # Cold cache: the very first request has to wait for the build.
+    # No snapshot for today yet (first load of the day, or a slow build).
     store.refresh_in_background()
-    deadline = time.time() + 240
+
+    # Serve the last stored day straight away rather than making the reader wait
+    # minutes for a build that may take several: the page would otherwise sit on
+    # "loading" with nothing on screen. `fallback` tells the UI which day it is.
+    prev = store.latest_snapshot()
+    if prev:
+        prev = dict(prev)
+        prev["stale"] = True
+        prev["fallback"] = True
+        prev["refreshing"] = True
+        return _with_sentiment(prev)
+
+    # Nothing stored at all: this is the true cold start, so waiting is the only
+    # option. Keep it shorter than the client's own timeout.
+    deadline = time.time() + 120
     while time.time() < deadline:
         snap = store.cached_snapshot()
         if snap:

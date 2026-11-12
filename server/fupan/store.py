@@ -655,3 +655,13 @@ def _latest_snapshot() -> dict[str, Any] | None:
     with _conn() as c:
         row = c.execute("SELECT payload FROM snapshots ORDER BY date DESC LIMIT 1").fetchone()
     return json.loads(row["payload"]) if row else None
+
+
+def latest_snapshot() -> dict[str, Any] | None:
+    """The most recent stored snapshot, of any date.
+
+    Used as a fallback when today's build has not finished: showing the previous
+    session's review beats leaving the page spinning, as long as the caller marks
+    it so the reader knows which day they are looking at.
+    """
+    return _latest_snapshot()

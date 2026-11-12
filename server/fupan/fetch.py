@@ -6,6 +6,7 @@ import json
 import logging
 import re
 import ssl
+import threading
 import time
 import urllib.parse
 import urllib.request
@@ -30,8 +31,8 @@ def _request(url: str, referer: str, timeout: float | None = None) -> bytes:
         return r.read()
 
 
-def _get_text(url: str, referer: str) -> str:
-    return _request(url, referer).decode("utf-8", "replace")
+def _get_text(url: str, referer: str, timeout: float | None = None) -> str:
+    return _request(url, referer, timeout=timeout).decode("utf-8", "replace")
 
 
 def to_symbol(code: str) -> str:
@@ -173,6 +174,48 @@ def _em_secid(code: str) -> str:
     return f"{'1' if sym.startswith('sh') else '0'}.{sym[2:]}"
 
 
+# A single bar request gets a short deadline. The snapshot build fetches bars for
+# every limit-up name, so a 20s global timeout on a dead source cost 20s *per
+# stock*; 6s is enough for a healthy response and bounds the damage when not.
+KLINE_TIMEOUT = 6.0
+
+# Sources that keep failing are skipped for a while. Retrying a 501/refused host
+# for every stock is what turned one outage into a multi-minute build.
+_SRC_COOLDOWN = 90.0
+_SRC_FAIL_LIMIT = 4
+_src_lock = threading.Lock()
+_src_fails: dict[str, int] = {}
+_src_dead_until: dict[str, float] = {}
+
+
+def _source_available(name: str) -> bool:
+    with _src_lock:
+        until = _src_dead_until.get(name, 0.0)
+        if until and until > time.time():
+            return False
+        if until:
+            _src_dead_until.pop(name, None)
+            _src_fails.pop(name, None)
+        return True
+
+
+def _record_source_failure(name: str) -> None:
+    with _src_lock:
+        n = _src_fails.get(name, 0) + 1
+        _src_fails[name] = n
+        if n >= _SRC_FAIL_LIMIT:
+            _src_dead_until[name] = time.time() + _SRC_COOLDOWN
+            _src_fails[name] = 0
+            log.warning("kline source %s cooling down for %ss after %s failures",
+                        name, int(_SRC_COOLDOWN), _SRC_FAIL_LIMIT)
+
+
+def _clear_source_failure(name: str) -> None:
+    with _src_lock:
+        _src_fails.pop(name, None)
+        _src_dead_until.pop(name, None)
+
+
 def _parse_tencent(text: str, sym: str) -> list[dict[str, Any]]:
     j = json.loads(text)
     if j.get("code") != 0:
@@ -298,12 +341,19 @@ def _fetch_kline_remote(code: str, days: int) -> list[dict[str, Any]]:
     sources = adjusted + unadjusted
 
     for name, url, referer, parse in sources:
+        if not _source_available(name):
+            continue
         try:
-            out = parse(_get_text(url, referer))
+            # A short per-source deadline matters far more here than for a single
+            # request: the snapshot build fetches bars for every limit-up name, and
+            # the global 20s timeout made one dead source cost 20s per stock.
+            out = parse(_get_text(url, referer, timeout=KLINE_TIMEOUT))
         except Exception as exc:
             log.debug("kline source %s failed for %s: %s", name, code, exc)
+            _record_source_failure(name)
             continue
         if out:
+            _clear_source_failure(name)
             if name == "sina":
                 log.warning(
                     "kline for %s served by sina (unadjusted): MA/MACD may be "

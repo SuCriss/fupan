@@ -524,6 +524,18 @@ export default function App() {
         </div>
       )}
 
+      {/* Today's build has not finished, so the server served the last stored
+          day. Say so — otherwise the date picker looks like it is ignoring
+          "latest". */}
+      {!isArchive && data?.fallback && (
+        <div className="archive-bar">
+          <span>
+            今日数据仍在构建中，当前显示 <b>{stats?.date}</b> 的复盘
+          </span>
+          <button className="link" onClick={() => load(false)}>重试</button>
+        </div>
+      )}
+
       <IndexBar market={market} />
       <Kpis stats={stats} />
       {data?.sentiment && (
