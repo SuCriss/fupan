@@ -1,17 +1,34 @@
 #!/bin/bash
+# Rewrite only server/.env, keeping the API key out of version control.
+#
+#   export FUPAN_LLM_API_KEY=sk-...
+#   bash _deploy/fix_env.sh
+#
+# Runs with umask 077 so the file is never world-readable, even briefly.
 set -e
 APP=/opt/fupan
 
-# 逐行写入，避免 heredoc/编码把注释与变量合并
-printf '%s\n' \
-  'FUPAN_LLM_BASE_URL=https://agent2api.chrisite.eu.cc/v1' \
-  'FUPAN_LLM_API_KEY=sk-a2a-039e1586431fb18463418aface027cfb' \
-  'FUPAN_LLM_MODEL=deepseek-v4.1-flash' \
-  'FUPAN_LLM_TIMEOUT=60' \
-  > "$APP/server/.env"
+LLM_BASE="${FUPAN_LLM_BASE_URL:-https://agent2api.cozehub.com/v1}"
+LLM_MODEL="${FUPAN_LLM_MODEL:-deepseek-v4.1-flash}"
+LLM_TIMEOUT="${FUPAN_LLM_TIMEOUT:-60}"
+LLM_KEY="${FUPAN_LLM_API_KEY:-}"
 
+if [ -z "$LLM_KEY" ]; then
+  echo "错误：未设置 FUPAN_LLM_API_KEY"
+  echo "      export FUPAN_LLM_API_KEY=sk-... 后重试"
+  exit 1
+fi
+
+umask 077
+{
+  echo "FUPAN_LLM_BASE_URL=$LLM_BASE"
+  echo "FUPAN_LLM_API_KEY=$LLM_KEY"
+  echo "FUPAN_LLM_MODEL=$LLM_MODEL"
+  echo "FUPAN_LLM_TIMEOUT=$LLM_TIMEOUT"
+} > "$APP/server/.env"
 chmod 600 "$APP/server/.env"
-echo "--- 行数与内容校验 ---"
+
+echo "--- 行数与内容校验（key 已打码）---"
 wc -l < "$APP/server/.env"
 sed 's/=sk-.*/=sk-***REDACTED***/' "$APP/server/.env"
 echo "--- 首行是否为变量 ---"
