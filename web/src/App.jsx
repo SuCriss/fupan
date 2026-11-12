@@ -524,15 +524,16 @@ export default function App() {
         </div>
       )}
 
-      {/* Today's build has not finished, so the server served the last stored
-          day. Say so — otherwise the date picker looks like it is ignoring
-          "latest". */}
+      {/* Today has nothing to show yet (still building, or before the open), so
+          the server served the previous session. Say which — otherwise the date
+          picker looks like it is ignoring "latest". */}
       {!isArchive && data?.fallback && (
         <div className="archive-bar">
           <span>
-            今日数据仍在构建中，当前显示 <b>{stats?.date}</b> 的复盘
+            {data.refreshing ? '今日数据仍在构建中' : '今日暂无涨停数据'}
+            ，当前显示 <b>{stats?.date}</b> 的复盘
           </span>
-          <button className="link" onClick={() => load(false)}>重试</button>
+          <button className="link" onClick={() => load(false)}>刷新</button>
         </div>
       )}
 

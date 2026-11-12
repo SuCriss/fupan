@@ -665,3 +665,18 @@ def latest_snapshot() -> dict[str, Any] | None:
     it so the reader knows which day they are looking at.
     """
     return _latest_snapshot()
+
+
+def latest_snapshot_before(day: str) -> dict[str, Any] | None:
+    """The newest snapshot strictly older than ``day``.
+
+    Before the open, today's snapshot is legitimately empty (no stock has hit a
+    limit yet). Showing yesterday's finished review is far more useful than a page
+    full of zeros.
+    """
+    with _conn() as c:
+        row = c.execute(
+            "SELECT payload FROM snapshots WHERE date < ? ORDER BY date DESC LIMIT 1",
+            (day,),
+        ).fetchone()
+    return json.loads(row["payload"]) if row else None

@@ -108,6 +108,19 @@ def api_all(date: str = Query("", description="YYYYMMDD or YYYY-MM-DD; empty = l
 
     snap = store.cached_snapshot()
     if snap:
+        # Before the open (or on a quiet morning) today's snapshot has no limit-ups
+        # yet. Serving that renders a page of zeros, so show the previous session
+        # instead and say so.
+        snap_stats = snap.get("stats") or {}
+        if not snap_stats.get("upCount") and not snap_stats.get("downCount"):
+            prev_day = store.latest_snapshot_before(snap_stats.get("date") or cfg.cn_today())
+            if prev_day:
+                prev_day = dict(prev_day)
+                prev_day["stale"] = True
+                prev_day["fallback"] = True
+                prev_day["refreshing"] = store.background_state()["running"]
+                return _with_sentiment(prev_day)
+
         # Serve immediately. A rebuild is only kicked off when the served data is
         # genuinely old, nothing is already building, *and* the previous build
         # started more than one TTL ago. That cooldown is what stops a build from
@@ -574,6 +587,10 @@ def _market_status() -> str:
     if lt.weekday() >= 5:
         return "休市"
     hm = lt.hour * 100 + lt.minute
+    if hm < 915:
+        # Before the auction there is no session to report; calling it "已收盘"
+        # was wrong at 9am and confused the freshness readout.
+        return "未开盘"
     if 915 <= hm < 925:
         return "集合竞价"
     if 930 <= hm <= 1130 or 1300 <= hm <= 1500:
