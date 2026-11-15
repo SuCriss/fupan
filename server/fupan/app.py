@@ -137,9 +137,18 @@ if WEB_DIST.exists():
         return FileResponse(icon, headers=SHORT_CACHE) if icon.exists() else FileResponse(WEB_DIST / "index.html", headers=NO_CACHE)
 
     @app.get("/robots.txt")
-    def robots() -> FileResponse:
-        f = WEB_DIST / "robots.txt"
-        return FileResponse(f, headers=SHORT_CACHE) if f.exists() else FileResponse(WEB_DIST / "index.html", headers=NO_CACHE)
+    def robots() -> Response:
+        # Generated from SITE_BASE rather than a static file: the build output
+        # carried its own copy, so changing the domain meant editing two places
+        # and the stale one kept advertising the old sitemap URL.
+        body = (
+            "User-agent: *\n"
+            "Allow: /\n"
+            "\n"
+            "# Everything lives on the single-page app root.\n"
+            f"Sitemap: {SITE_BASE}sitemap.xml\n"
+        )
+        return Response(body, media_type="text/plain", headers=SHORT_CACHE)
 
     @app.get("/manifest.webmanifest")
     def manifest() -> FileResponse:
