@@ -148,7 +148,7 @@ if WEB_DIST.exists():
             "# Everything lives on the single-page app root.\n"
             f"Sitemap: {SITE_BASE}sitemap.xml\n"
         )
-        return Response(body, media_type="text/plain", headers=SHORT_CACHE)
+        return Response(body, media_type="text/plain", headers=NO_CACHE)
 
     @app.get("/manifest.webmanifest")
     def manifest() -> FileResponse:
@@ -205,4 +205,6 @@ if WEB_DIST.exists():
             + "".join(parts)
             + "</urlset>"
         )
-        return Response(content=xml, media_type="application/xml")
+        # no-cache: both files change when the domain or the archive list changes,
+        # and a cached copy kept advertising the old sitemap host after the move.
+        return Response(content=xml, media_type="application/xml", headers=NO_CACHE)
