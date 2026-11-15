@@ -23,6 +23,7 @@ import { TimeDist } from './components/TimeDist'
 import { LhbBoard } from './components/Lhb'
 import { NoteBox } from './components/Notes'
 import { Login } from './components/Login'
+import { ErrorPanel } from './components/ErrorPanel'
 
 // The drawer carries the charting code (K-line, minute chart), which is only
 // needed once a stock is opened. Keeping it out of the initial bundle speeds up
@@ -627,11 +628,7 @@ export default function App() {
         {tab === 'watch' ? (
           <WatchList onOpen={openDetail} />
         ) : error ? (
-          <div className="empty">
-            数据加载失败：{error}
-            <br /><br />
-            请确认后端服务已启动（http://127.0.0.1:8000），且网络可访问行情源。
-          </div>
+          <ErrorPanel error={error} onRetry={() => load(false)} />
         ) : !data ? (
           <div className="empty">加载中…</div>
         ) : tab === 'leaders' ? (
