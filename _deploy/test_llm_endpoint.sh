@@ -8,7 +8,7 @@ echo "现有 base: $OLD"
 echo "模型:      $MODEL"
 echo "key 长度:  ${#KEY}"
 
-NEW="https://agent2api.cozehub.com/v1"
+NEW="https://agent2api.chrisite.eu.cc/v1"
 
 echo
 echo "=== 1. 新端点连通性（/models）==="
