@@ -10,6 +10,6 @@ echo
 echo "=== 经 Cloudflare ==="
 for p in sw.js manifest.webmanifest; do
   echo "--- /$p ---"
-  curl -s -D - -o /dev/null -m 15 "https://fupan.cozehub.com/$p" \
+  curl -s -D - -o /dev/null -m 15 "https://fupan.chrisite.eu.cc/$p" \
     | grep -iE '^HTTP/|^content-type:|^cache-control:|^cf-cache-status:|^age:' | sed 's/^/  /'
 done

@@ -1,17 +1,17 @@
 #!/bin/bash
 set -e
-DOMAIN=fupan.cozehub.com
+DOMAIN=fupan.chrisite.eu.cc
 CONF=/etc/nginx/conf.d/${DOMAIN}.conf
 
 # ASCII-only comments: a prior upload collapsed a CJK comment line into the
 # following "server {" line and nginx rejected the whole config.
 cat > "$CONF" <<'NGXEOF'
 # fupan - A-share limit-up review
-# fupan.cozehub.com -> 127.0.0.1:8000 (FastAPI/uvicorn)
+# fupan.chrisite.eu.cc -> 127.0.0.1:8000 (FastAPI/uvicorn)
 # Stage 1: HTTP only, serves the ACME challenge path for certbot.
 server {
     listen 80;
-    server_name fupan.cozehub.com;
+    server_name fupan.chrisite.eu.cc;
 
     location ^~ /.well-known/acme-challenge/ {
         root /var/www/html;

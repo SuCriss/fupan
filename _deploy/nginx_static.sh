@@ -7,7 +7,7 @@
 # so browser behaviour is unchanged.
 set -euo pipefail
 
-CONF=/etc/nginx/conf.d/fupan.cozehub.com.conf
+CONF=/etc/nginx/conf.d/fupan.chrisite.eu.cc.conf
 STAMP=$(date +%Y%m%d-%H%M%S)
 cp "$CONF" "$CONF.bak-$STAMP"
 

@@ -1,5 +1,5 @@
 #!/bin/bash
-DOMAIN=fupan.cozehub.com
+DOMAIN=fupan.chrisite.eu.cc
 LOG=/tmp/certbot_fupan.log
 rm -f "$LOG"
 

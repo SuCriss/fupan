@@ -5,7 +5,7 @@
 # down, or /api/health returning 503 because the database is unreadable or the
 # snapshot is hours stale. It is deliberately not the only monitor — if the whole
 # host dies this probe dies with it — so pair it with an external check pointed at
-# https://fupan.cozehub.com/api/health.
+# https://fupan.chrisite.eu.cc/api/health.
 #
 # A single failure is treated as a blip (upstream fetch hiccups, brief reload) and
 # only logged after FAIL_THRESHOLD consecutive misses, so the log stays signal.

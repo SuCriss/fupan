@@ -2,7 +2,7 @@
 # Prepare (but do not enable TLS for) the legacy fupan.chrisite.eu.cc vhost.
 # Safe to run repeatedly; only port 80 is configured until DNS resolves.
 # Run _deploy/issue_cert_chrisite.sh afterwards to add TLS.
-# Restore the legacy hostname fupan.chrisite.eu.cc alongside fupan.cozehub.com.
+# Restore the legacy hostname fupan.chrisite.eu.cc alongside fupan.chrisite.eu.cc.
 #
 # The domain itself is still registered (its NS records point at Cloudflare) but
 # every A record in that zone has been removed, so nothing resolves. Once the

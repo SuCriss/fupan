@@ -2,4 +2,4 @@ User-agent: *
 Allow: /
 
 # Everything lives on the single-page app root.
-Sitemap: https://fupan.cozehub.com/sitemap.xml
+Sitemap: https://fupan.chrisite.eu.cc/sitemap.xml
