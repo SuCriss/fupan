@@ -1,1 +1,5 @@
-User-agent: *Allow: /# Everything lives on the single-page app root.Sitemap: https://fupan.cozehub.com/sitemap.xml
+User-agent: *
+Allow: /
+
+# Everything lives on the single-page app root.
+Sitemap: https://fupan.cozehub.com/sitemap.xml
