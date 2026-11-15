@@ -1,5 +1,5 @@
 #!/bin/bash
-CONF=/etc/nginx/conf.d/fupan.chrisite.eu.cc.conf
+CONF=/etc/nginx/conf.d/fupan.cozehub.com.conf
 echo "=== 当前文件内容 ==="
 cat -A "$CONF" | head -20
 echo

@@ -17,7 +17,7 @@ logging.basicConfig(
 )
 
 WEB_DIST = cfg.ROOT_DIR / "web" / "dist"
-SITE_BASE = "https://fupan.chrisite.eu.cc/"
+SITE_BASE = "https://fupan.cozehub.com/"
 
 # Vite emits content-hashed asset names, so a given /assets file never changes:
 # it can be cached forever. The HTML shell is the opposite — every deploy rewrites

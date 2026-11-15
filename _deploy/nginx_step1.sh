@@ -1,15 +1,15 @@
 #!/bin/bash
 set -e
-DOMAIN=fupan.chrisite.eu.cc
+DOMAIN=fupan.cozehub.com
 CONF=/etc/nginx/conf.d/${DOMAIN}.conf
 
 echo "=== 1. 先写 HTTP-only 配置（供 ACME 验证） ==="
 cat > "$CONF" <<'NGXEOF'
-# A股涨停复盘 · fupan.chrisite.eu.cc -> 127.0.0.1:8000 (FastAPI/uvicorn)
+# A股涨停复盘 · fupan.cozehub.com -> 127.0.0.1:8000 (FastAPI/uvicorn)
 # 证书由 certbot 申请并自动续期（certbot.timer）。
 server {
     listen 80;
-    server_name fupan.chrisite.eu.cc;
+    server_name fupan.cozehub.com;
 
     location ^~ /.well-known/acme-challenge/ {
         root /var/www/html;

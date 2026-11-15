@@ -1,6 +1,6 @@
 #!/bin/bash
 set -e
-DOMAIN=fupan.chrisite.eu.cc
+DOMAIN=fupan.cozehub.com
 CONF=/etc/nginx/conf.d/${DOMAIN}.conf
 LIVE=/etc/letsencrypt/live/${DOMAIN}
 
@@ -24,11 +24,11 @@ echo
 echo "=== 3. full HTTPS config ==="
 cat > "$CONF" <<'NGXEOF'
 # fupan - A-share limit-up review
-# fupan.chrisite.eu.cc -> nginx :443 -> 127.0.0.1:8000 (FastAPI/uvicorn)
+# fupan.cozehub.com -> nginx :443 -> 127.0.0.1:8000 (FastAPI/uvicorn)
 
 server {
     listen 80;
-    server_name fupan.chrisite.eu.cc;
+    server_name fupan.cozehub.com;
 
     location ^~ /.well-known/acme-challenge/ {
         root /var/www/html;
@@ -42,10 +42,10 @@ server {
 
 server {
     listen 443 ssl http2;
-    server_name fupan.chrisite.eu.cc;
+    server_name fupan.cozehub.com;
 
-    ssl_certificate     /etc/letsencrypt/live/fupan.chrisite.eu.cc/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/fupan.chrisite.eu.cc/privkey.pem;
+    ssl_certificate     /etc/letsencrypt/live/fupan.cozehub.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/fupan.cozehub.com/privkey.pem;
     include /etc/letsencrypt/options-ssl-nginx.conf;
 
     client_max_body_size 16m;

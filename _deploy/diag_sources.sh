@@ -36,6 +36,6 @@ fi
 
 echo
 echo "=== 前端首屏（公网 vs 源站）==="
-curl -s -o /dev/null -w '  公网 / -> %{http_code} %{time_total}s\n' -m 20 https://fupan.chrisite.eu.cc/
+curl -s -o /dev/null -w '  公网 / -> %{http_code} %{time_total}s\n' -m 20 https://fupan.cozehub.com/
 curl -s -o /dev/null -w '  源站 / -> %{http_code} %{time_total}s\n' -m 10 http://127.0.0.1:8000/
-curl -s -o /dev/null -w '  公网 /api/health -> %{http_code}\n' -m 20 https://fupan.chrisite.eu.cc/api/health
+curl -s -o /dev/null -w '  公网 /api/health -> %{http_code}\n' -m 20 https://fupan.cozehub.com/api/health
